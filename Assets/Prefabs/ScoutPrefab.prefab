@@ -1,0 +1,94 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &1838837875 # GameObject for Scout Prefab
+GameObject:
+  m_ObjectHideFlags: 0
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1838837878} # Transform
+  - component: {fileID: 1838837876} # MeshFilter (Sphere)
+  - component: {fileID: 1838837877} # MeshRenderer
+  - component: {fileID: 1838837879} # SphereCollider
+  - component: {fileID: 1838837880} # ScoutAI Script
+  - component: {fileID: 1838837881} # Health Script
+  m_Layer: 0
+  m_Name: Scout
+  m_TagString: Scout 
+  m_IsActive: 1
+--- !u!33 &1838837876 # MeshFilter for Scout (Sphere)
+MeshFilter:
+  m_ObjectHideFlags: 0
+  m_Mesh: {fileID: 10200, guid: 0000000000000000e000000000000000, type: 0} 
+--- !u!23 &1838837877 # MeshRenderer for Scout
+MeshRenderer:
+  m_ObjectHideFlags: 0
+  m_Materials:
+  - {fileID: 10307, guid: 0000000000000000f000000000000000, type: 0} 
+--- !u!4 &1838837878 # Transform for Scout
+Transform:
+  m_ObjectHideFlags: 0
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0.25, z: 0} 
+  m_LocalScale: {x: 0.5, y: 0.5, z: 0.5} 
+  m_ConstrainProportionsScale: 0
+  m_Children:
+  - {fileID: 1838837882} # EyePoint Transform
+  m_Father: {fileID: 0}
+  m_RootOrder: 0 
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!65 &1838837879 # SphereCollider for Scout
+SphereCollider:
+  m_ObjectHideFlags: 0
+  m_Radius: 0.5 
+--- !u!114 &1838837880 # ScoutAI Script Component
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_GameObject: {fileID: 1838837875} 
+  m_Script: {fileID: 11500000, guid: D6C5B4A3-F2E1-B8A7-9C0D-E1F2A3B4C5D6, type: 3} # ScoutAI.cs
+  moveSpeed: 2
+  wanderRadius: 5
+  waypointReachedThreshold: 0.5 
+  # detectionRadius: 5 # Commented out in script, value remains serialized if not removed
+  visionDistance: 7 
+  visionAngle: 90
+  obstacleLayerMask: 
+    m_Bits: 256 # Layer 8 (Obstacles)
+  eyePosition: {fileID: 1838837882} # Link to EyePoint's Transform
+  attackDamage: 5      
+  attackRange: 1       
+  attackCooldown: 1.5  
+  heroTransform: {fileID: 0} 
+--- !u!114 &1838837881 # Health Script Component for Scout
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_GameObject: {fileID: 1838837875} 
+  m_Script: {fileID: 11500000, guid: C3D4E5F6-A7B8-C9D0-E1F2-A3B4C5D6E7F8, type: 3} # Health.cs
+  maxHealth: 25 
+  goldNuggetPrefab: {fileID: 100100000, guid: F8A9B0C1-D2E3-F4A5-B6C7-D8E9F0A1B2C3, type: 2} 
+  goldDropAmount: 1 
+--- !u!4 &1838837882 # Transform for EyePoint
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0.15, z: 0.1} # Relative to parent (Scout), y up, z forward from center
+  m_LocalScale: {x: 1, y: 1, z: 1} # Relative to parent's scale
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 1838837878} # Parent is Scout's Transform
+  m_RootOrder: 0 
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1838837883 # EyePoint GameObject
+GameObject:
+  m_ObjectHideFlags: 0
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1838837882} # Transform
+  m_Layer: 0
+  m_Name: EyePoint
+  m_TagString: Untagged
+  m_IsActive: 1
+  m_Father: {fileID: 1838837875} # Parent is Scout GameObject
+  m_RootOrder: 0 # First child

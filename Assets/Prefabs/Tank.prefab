@@ -1,0 +1,76 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &710000000 # GameObject for Tank Prefab
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 710000001} # Transform
+  - component: {fileID: 710000002} # MeshFilter (Cube)
+  - component: {fileID: 710000003} # MeshRenderer
+  - component: {fileID: 710000004} # BoxCollider
+  - component: {fileID: 710000005} # TankAI Script
+  - component: {fileID: 710000006} # Health Script
+  m_Layer: 0
+  m_Name: TankMinion
+  m_TagString: Tank # Tagged as Tank
+  m_IsActive: 1
+--- !u!4 &710000001 # Transform for Tank
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0.5, z: 0} # Positioned to sit on ground
+  m_LocalScale: {x: 1, y: 1, z: 1} # Default Cube scale
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_RootOrder: 0 
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!33 &710000002 # MeshFilter for Tank (Cube)
+MeshFilter:
+  m_ObjectHideFlags: 0
+  m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0} # Built-in Cube
+--- !u!23 &710000003 # MeshRenderer for Tank
+MeshRenderer:
+  m_ObjectHideFlags: 0
+  m_Enabled: 1
+  m_CastShadows: 1
+  m_ReceiveShadows: 1
+  m_Materials:
+  - {fileID: 10307, guid: 0000000000000000f000000000000000, type: 0} # Default-Material
+--- !u!54 &710000004 # BoxCollider for Tank
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_Enabled: 1
+  m_IsTrigger: 0
+  m_Material: {fileID: 0}
+  m_Center: {x: 0, y: 0, z: 0}
+  m_Size: {x: 1, y: 1, z: 1} # Default BoxCollider size for a Cube
+--- !u!114 &710000005 # TankAI Script Component
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_GameObject: {fileID: 710000000} 
+  m_Enabled: 1
+  m_Script: {fileID: 11500000, guid: A0B1C2D3-E4F5-A6B7-C8D9-E0F1A2B3C4D5, type: 3} # TankAI.cs
+  moveSpeed: 1.0
+  detectionRadius: 6.0
+  attackDamage: 15.0
+  attackRange: 1.5
+  attackCooldown: 2.0
+  heroTransform: {fileID: 0} # Will be found by tag in Start()
+  # private fields (attackTimer, wanderTarget, etc.) are not serialized here
+--- !u!114 &710000006 # Health Script Component for Tank
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_GameObject: {fileID: 710000000} 
+  m_Enabled: 1
+  m_Script: {fileID: 11500000, guid: C3D4E5F6-A7B8-C9D0-E1F2-A3B4C5D6E7F8, type: 3} # Health.cs
+  maxHealth: 75 
+  goldNuggetPrefab: {fileID: 100100000, guid: F8A9B0C1-D2E3-F4A5-B6C7-D8E9F0A1B2C3, type: 2} # Link to GoldNugget.prefab
+  goldDropAmount: 3

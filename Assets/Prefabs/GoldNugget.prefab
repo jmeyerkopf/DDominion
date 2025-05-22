@@ -1,0 +1,88 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &500000000 # GameObject for GoldNugget Prefab
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 500000001} # Transform
+  - component: {fileID: 500000002} # MeshFilter (Sphere)
+  - component: {fileID: 500000003} # MeshRenderer
+  - component: {fileID: 500000004} # SphereCollider (Trigger)
+  - component: {fileID: 500000005} # Rigidbody
+  - component: {fileID: 500000006} # GoldNuggetStop Script
+  m_Layer: 0
+  m_Name: GoldNugget
+  m_TagString: GoldNugget # Tagged as GoldNugget
+  m_IsActive: 1
+--- !u!4 &500000001 # Transform for GoldNugget
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0} 
+  m_LocalScale: {x: 0.2, y: 0.2, z: 0.2} # Small nugget
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_RootOrder: 0 
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!33 &500000002 # MeshFilter for GoldNugget (Sphere)
+MeshFilter:
+  m_ObjectHideFlags: 0
+  m_Mesh: {fileID: 10200, guid: 0000000000000000e000000000000000, type: 0} # Built-in Sphere
+--- !u!23 &500000003 # MeshRenderer for GoldNugget
+MeshRenderer:
+  m_ObjectHideFlags: 0
+  m_Enabled: 1
+  m_CastShadows: 1
+  m_ReceiveShadows: 1
+  m_Materials: # Attempting to set a yellow-ish color, may not work without a .mat file
+  - {fileID: 2100000, guid: 0000000000000000f000000000000000, type: 2} # Default-Material
+  # Unity typically uses a .mat file. Direct color override in prefab is not standard.
+  # If I had a yellow material asset, I'd link its GUID here.
+  # For now, it will likely use the default material's color (grey/white).
+  # A better approach would be to create a Yellow.mat file.
+  # Example of material properties if it were possible to inline:
+  # m_SavedProperties:
+  #   m_TexEnvs: []
+  #   m_Floats:
+  #   - _Glossiness: 0.5
+  #   m_Colors:
+  #   - _Color: {r: 1, g: 0.843, b: 0, a: 1} # Yellow
+--- !u!65 &500000004 # SphereCollider for GoldNugget
+SphereCollider:
+  m_ObjectHideFlags: 0
+  m_Enabled: 1
+  serializedVersion: 2 
+  m_IsTrigger: 1 # Is Trigger = true
+  m_Material: {fileID: 0} 
+  m_Center: {x: 0, y: 0, z: 0}
+  m_Radius: 0.5 # Default sphere radius, effective radius will be 0.5 * 0.2 = 0.1
+--- !u!54 &500000005 # Rigidbody for GoldNugget
+Rigidbody:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Mass: 0.1 # Small mass
+  m_Drag: 0.5
+  m_AngularDrag: 0.05
+  m_UseGravity: 1 # Use Gravity = true
+  m_IsKinematic: 0 # Is Kinematic = false
+  m_Interpolate: 0
+  m_Constraints: 0
+  m_CollisionDetection: 0
+--- !u!114 &500000006 # GoldNuggetStop Script Component
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_GameObject: {fileID: 500000000} 
+  m_Enabled: 1
+  m_Script: {fileID: 11500000, guid: E7F8A9B0-C1D2-E3F4-A5B6-C7D8E9F0A1B2, type: 3} # GoldNuggetStop.cs
+  stopDelay: 2.5 # Increased slightly
+  groundCollisionStopDelay: 0.5
