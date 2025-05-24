@@ -12,7 +12,15 @@ public class HeroController : MonoBehaviour
     private Renderer heroRenderer;
     private Color originalColor;
     private Color stealthColor;
+    private Color cloakColor; // For cloak ability
     private float groundLevelY;
+
+    // Cloak Ability properties
+    public bool isCloaked = false;
+    public float cloakDuration = 5.0f;
+    public float cloakCooldown = 20.0f;
+    private float cloakTimer = 0f;
+    private float cloakCooldownTimer = 0f;
 
     // Attack properties
     public float attackDamage = 10.0f;
@@ -28,6 +36,10 @@ public class HeroController : MonoBehaviour
     private float villageLootCooldown = 10.0f; 
     private Dictionary<GameObject, float> villageLastLootTime = new Dictionary<GameObject, float>();
     public float villageLootNoiseRadius = 5.0f; 
+    public bool isInteractingWithVillage = false;
+    public float currentVillageInteractionTime = 0f;
+    public float villageInteractionDuration = 1.5f; // How long the "interacting" flag stays true for minions to see
+    public GameObject currentInteractingVillage = null;
 
     // Tavern Interaction & Upgrades
     public float tavernInteractRange = 3.0f;
@@ -48,6 +60,12 @@ public class HeroController : MonoBehaviour
     [HideInInspector] 
     public bool isBeingActivelyDetected = false; 
 
+    // Clue Dropping
+    public GameObject cluePrefab; 
+    private float clueDropTimer = 0f;
+    public float clueDropInterval = 1.0f; 
+    public float clueLifetime = 10.0f;
+
     void Start()
     {
         // Reposition based on marker
@@ -67,6 +85,7 @@ public class HeroController : MonoBehaviour
         {
             originalColor = heroRenderer.material.color;
             stealthColor = new Color(originalColor.r * 0.5f, originalColor.g * 0.5f, originalColor.b * 0.5f, 0.5f); 
+            cloakColor = new Color(originalColor.r, originalColor.g, originalColor.b, 0.1f); // Near invisibility for cloak
         }
         else
         {
@@ -89,10 +108,14 @@ public class HeroController : MonoBehaviour
             return; 
         }
 
+        HandleCloakInput(); // Handle cloak activation input first
         HandleMovementAndStealth();
         HandleAttack();
         HandleInteraction(); 
+        HandleVillageInteractionState(); // Manage ongoing village interaction
         HandleDetectionLevelDecay(); 
+        UpdateCloakTimers(); // Manage cloak duration and cooldown
+        UpdateVisuals(); // Update visual representation based on states
     }
     
     void HandleDetectionLevelDecay()
@@ -122,22 +145,45 @@ public class HeroController : MonoBehaviour
             currentPosition.y = groundLevelY;
             transform.position = currentPosition;
 
-            if (IsHidden)
+            // IsHidden no longer set to false when moving.
+            // Visuals will be handled by UpdateVisuals()
+            hideTimer = 0f;
+
+            if (isInteractingWithVillage)
             {
-                IsHidden = false;
-                if (heroRenderer != null) heroRenderer.material.color = originalColor;
+                Debug.Log("Hero moved, stopping village interaction.");
+                StopVillageInteraction();
             }
-            hideTimer = 0f; 
+
+            // Handle Clue Dropping
+            if (!isCloaked) // Do not drop clues if fully cloaked
+            {
+                clueDropTimer -= Time.deltaTime;
+                if (clueDropTimer <= 0f)
+                {
+                    if (cluePrefab != null)
+                    {
+                        GameObject clueInstance = Instantiate(cluePrefab, transform.position, Quaternion.identity);
+                        ClueObject clueScript = clueInstance.GetComponent<ClueObject>();
+                        if (clueScript != null)
+                        {
+                            clueScript.lifetime = this.clueLifetime; // Pass hero's defined lifetime to the clue
+                        }
+                        Debug.Log("Hero dropped a clue at " + transform.position);
+                    }
+                    clueDropTimer = clueDropInterval;
+                }
+            }
         }
         else 
         {
-            if (!IsHidden)
+            if (!IsHidden && !isCloaked) // Only enter normal stealth if not cloaked and not already hidden
             {
                 hideTimer += Time.deltaTime;
                 if (hideTimer >= timeToHide)
                 {
                     IsHidden = true;
-                    if (heroRenderer != null) heroRenderer.material.color = stealthColor;
+                    // Visuals will be handled by UpdateVisuals()
                 }
             }
         }
@@ -154,6 +200,13 @@ public class HeroController : MonoBehaviour
         {
             attackTimer = attackCooldown;
             NoiseManager.MakeNoise(transform.position, attackNoiseRadius); 
+            IsHidden = false; // Break stealth on attack
+            if (isCloaked) // Break cloak on attack
+            {
+                isCloaked = false;
+                cloakTimer = 0f; 
+                // Visuals will be handled by UpdateVisuals()
+            }
 
             GameObject[] scouts = GameObject.FindGameObjectsWithTag("Scout");
             GameObject[] tanks = GameObject.FindGameObjectsWithTag("Tank");
@@ -198,6 +251,13 @@ public class HeroController : MonoBehaviour
                     if (distanceToTavern <= tavernInteractRange)
                     {
                         tavernShopPanel.SetActive(true);
+                        IsHidden = false; // Break stealth on tavern interaction
+                        if (isCloaked) // Break cloak on tavern interaction
+                        {
+                            isCloaked = false;
+                            cloakTimer = 0f;
+                        }
+                        // Visuals will be handled by UpdateVisuals()
                         Debug.Log("Opened Tavern Shop Panel.");
                         interactedThisPress = true;
                         break; 
@@ -229,7 +289,21 @@ public class HeroController : MonoBehaviour
                             goldAmount += villageLootAmount;
                             villageLastLootTime[villageGO] = Time.time; 
                             NoiseManager.MakeNoise(transform.position, villageLootNoiseRadius); 
+                            IsHidden = false; // Break stealth on looting
+                            if (isCloaked) // Break cloak on looting
+                            {
+                                isCloaked = false;
+                                cloakTimer = 0f;
+                            }
+                            // Visuals will be handled by UpdateVisuals()
                             Debug.Log("Looted " + villageGO.name + " for " + villageLootAmount + " gold. Total gold: " + goldAmount + ". Noise made.");
+                            
+                            // Start interaction state for minion detection
+                            isInteractingWithVillage = true;
+                            currentVillageInteractionTime = 0f;
+                            currentInteractingVillage = villageGO;
+                            Debug.Log("Hero started interacting with village: " + villageGO.name);
+
                             interactedThisPress = true;
                             break; 
                         }
@@ -237,6 +311,45 @@ public class HeroController : MonoBehaviour
                 }
             }
         }
+        // If E is released and was interacting, stop.
+        // This is a simplified check. A more robust solution might involve tracking E press/release more explicitly
+        // if complex interactions beyond the timed duration are needed.
+        if (Input.GetKeyUp(KeyCode.E) && isInteractingWithVillage)
+        {
+            StopVillageInteraction();
+        }
+    }
+
+    void HandleVillageInteractionState()
+    {
+        if (isInteractingWithVillage)
+        {
+            currentVillageInteractionTime += Time.deltaTime;
+
+            // Check conditions to stop interaction
+            if (currentInteractingVillage == null || // Village somehow got destroyed/nulled
+                Vector3.Distance(transform.position, currentInteractingVillage.transform.position) > lootRange + 0.5f || // Moved too far (added buffer)
+                currentVillageInteractionTime >= villageInteractionDuration) 
+            {
+                if (currentVillageInteractionTime >= villageInteractionDuration) Debug.Log("Village interaction timed out.");
+                else if (currentInteractingVillage == null) Debug.Log("Interacting village became null.");
+                else Debug.Log("Moved too far from village during interaction.");
+                StopVillageInteraction();
+            }
+            // Note: Movement check is primarily in HandleMovementAndStealth for immediate feedback.
+            // 'E' key release check is in HandleInteraction.
+        }
+    }
+
+    void StopVillageInteraction()
+    {
+        if (isInteractingWithVillage) // Ensure we only log/reset if actually interacting
+        {
+            Debug.Log("Stopping interaction with village: " + (currentInteractingVillage != null ? currentInteractingVillage.name : "N/A"));
+        }
+        isInteractingWithVillage = false;
+        currentVillageInteractionTime = 0f;
+        currentInteractingVillage = null;
     }
 
     public void PurchaseAttackUpgrade()
@@ -283,5 +396,69 @@ public class HeroController : MonoBehaviour
     void OnDisable()
     {
         if (heroRenderer != null && heroRenderer.material != null) { heroRenderer.material.color = originalColor; }
+    }
+
+    // New methods for Cloak and Visuals
+
+    void HandleCloakInput()
+    {
+        if (Input.GetKeyDown(KeyCode.LeftShift) && cloakCooldownTimer <= 0 && !isCloaked)
+        {
+            isCloaked = true;
+            cloakTimer = cloakDuration;
+            cloakCooldownTimer = cloakCooldown;
+            hideTimer = 0f; // Reset hide timer as cloak is a more powerful stealth
+            IsHidden = false; // Cloak overrides normal stealth initially
+            Debug.Log("Cloak activated!");
+            // Visuals will be handled by UpdateVisuals()
+        }
+    }
+
+    void UpdateCloakTimers()
+    {
+        if (isCloaked)
+        {
+            cloakTimer -= Time.deltaTime;
+            if (cloakTimer <= 0)
+            {
+                isCloaked = false;
+                cloakTimer = 0f;
+                Debug.Log("Cloak ended.");
+                // Check if hero should immediately go into IsHidden state
+                float horizontalInput = Input.GetAxis("Horizontal");
+                float verticalInput = Input.GetAxis("Vertical");
+                Vector3 movement = new Vector3(horizontalInput, 0, verticalInput);
+                if (movement.magnitude < 0.01f)
+                {
+                    // If not moving, start the hide timer for normal stealth
+                    hideTimer = 0f; // Reset to begin counting for IsHidden
+                }
+                // Visuals will be handled by UpdateVisuals()
+            }
+        }
+
+        if (cloakCooldownTimer > 0)
+        {
+            cloakCooldownTimer -= Time.deltaTime;
+            if (cloakCooldownTimer < 0) cloakCooldownTimer = 0;
+        }
+    }
+
+    void UpdateVisuals()
+    {
+        if (heroRenderer == null || heroRenderer.material == null) return;
+
+        if (isCloaked)
+        {
+            heroRenderer.material.color = cloakColor;
+        }
+        else if (IsHidden)
+        {
+            heroRenderer.material.color = stealthColor;
+        }
+        else
+        {
+            heroRenderer.material.color = originalColor;
+        }
     }
 }

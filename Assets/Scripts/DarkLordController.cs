@@ -15,6 +15,10 @@ public class DarkLordController : MonoBehaviour
     public float maxEvilEnergy = 100f;
     public float energyGenerationRate = 2f; 
 
+    // Scout Dispatch
+    private bool isPendingScoutDispatch = false;
+    public LayerMask groundLayerMask; // Set this in the Inspector
+
     void Start()
     {
         if (scoutPrefab == null)
@@ -34,14 +38,40 @@ public class DarkLordController : MonoBehaviour
         currentEvilEnergy = Mathf.Clamp(currentEvilEnergy, 0, maxEvilEnergy);
         // Debug.Log("Current Evil Energy: " + currentEvilEnergy); 
 
-        // Test Input for Spawning Scout
+        // Input for Spawning Scout
         if (Input.GetKeyDown(KeyCode.Alpha1))
         {
-            Debug.Log("Alpha1 key pressed - attempting to spawn Scout.");
-            SpawnScout(initialSpawnPosition);
+            if (!isPendingScoutDispatch)
+            {
+                Debug.Log("Alpha1 key pressed - Pending Scout Dispatch. Click on the map to set target location.");
+                isPendingScoutDispatch = true;
+            }
+            else
+            {
+                Debug.Log("Scout dispatch cancelled.");
+                isPendingScoutDispatch = false; // Allow cancelling by pressing Alpha1 again
+            }
         }
 
-        // Test Input for Spawning Tank
+        if (isPendingScoutDispatch && Input.GetMouseButtonDown(0))
+        {
+            Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
+            RaycastHit hit;
+
+            if (Physics.Raycast(ray, out hit, Mathf.Infinity, groundLayerMask))
+            {
+                Vector3 targetDispatchLocation = hit.point;
+                Debug.Log("Dispatching Scout to: " + targetDispatchLocation);
+                SpawnScout(initialSpawnPosition, targetDispatchLocation); // Call modified SpawnScout
+                isPendingScoutDispatch = false;
+            }
+            else
+            {
+                Debug.Log("Could not find a valid point on the ground to dispatch Scout. Click on terrain.");
+            }
+        }
+
+        // Input for Spawning Tank
         if (Input.GetKeyDown(KeyCode.Alpha2))
         {
             Debug.Log("Alpha2 key pressed - attempting to spawn Tank.");
@@ -49,7 +79,7 @@ public class DarkLordController : MonoBehaviour
         }
     }
 
-    public void SpawnScout(Vector3 spawnPosition)
+    public void SpawnScout(Vector3 spawnPosition, Vector3 targetDispatchLocation)
     {
         if (scoutPrefab == null)
         {
@@ -60,8 +90,17 @@ public class DarkLordController : MonoBehaviour
         if (currentEvilEnergy >= scoutSpawnCost)
         {
             currentEvilEnergy -= scoutSpawnCost;
-            Instantiate(scoutPrefab, spawnPosition, Quaternion.identity);
-            Debug.Log("Spawned Scout at: " + spawnPosition + ". Energy deducted: " + scoutSpawnCost + ". Remaining energy: " + currentEvilEnergy);
+            GameObject scoutGO = Instantiate(scoutPrefab, spawnPosition, Quaternion.identity);
+            ScoutAI scoutAI = scoutGO.GetComponent<ScoutAI>();
+            if (scoutAI != null)
+            {
+                scoutAI.SetInitialMission(targetDispatchLocation);
+            }
+            else
+            {
+                Debug.LogError("Spawned Scout does not have a ScoutAI component!");
+            }
+            Debug.Log("Spawned Scout at: " + spawnPosition + ", dispatched to: " + targetDispatchLocation + ". Energy deducted: " + scoutSpawnCost + ". Remaining energy: " + currentEvilEnergy);
         }
         else
         {
