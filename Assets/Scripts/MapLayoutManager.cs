@@ -19,6 +19,11 @@ public class MapLayoutManager : MonoBehaviour
     public List<Transform> possibleIngredientSpawnLocations;
     public int numberOfIngredientsToSpawn = 5;
 
+    // Ley Line Shrine Spawning
+    public GameObject leyLineShrinePrefab;
+    public List<Transform> possibleShrineSpawnLocations;
+    public int numberOfShrinesToSpawn = 3;
+
     void Awake()
     {
         List<Transform> markersToPosition = new List<Transform>();
@@ -189,5 +194,57 @@ public class MapLayoutManager : MonoBehaviour
             Debug.Log("MapLayoutManager: Spawned " + prefabToSpawn.name + " at " + spawnPoint.name + " (" + spawnPoint.position + ")");
         }
         Debug.Log("MapLayoutManager: Ingredient source spawning complete. Spawned " + countToSpawn + " ingredients.");
+
+        // --- Ley Line Shrine Spawning Logic ---
+        if (leyLineShrinePrefab == null)
+        {
+            Debug.LogWarning("MapLayoutManager: leyLineShrinePrefab is not assigned. Skipping shrine spawning.");
+            return; // Exit if no shrine prefab to spawn
+        }
+
+        if (possibleShrineSpawnLocations == null || possibleShrineSpawnLocations.Count == 0)
+        {
+            Debug.LogWarning("MapLayoutManager: possibleShrineSpawnLocations list is null or empty. Skipping shrine spawning.");
+            return; // Exit if no spawn locations
+        }
+
+        List<Transform> availableShrineSpawns = new List<Transform>(possibleShrineSpawnLocations.Where(loc => loc != null));
+        if (availableShrineSpawns.Count == 0)
+        {
+            Debug.LogWarning("MapLayoutManager: All entries in possibleShrineSpawnLocations are null. Skipping shrine spawning.");
+            return;
+        }
+        
+        // Shuffle availableShrineSpawns (using the same Fisher-Yates shuffle - rng is from earlier in Awake)
+        int s_n = availableShrineSpawns.Count;
+        while (s_n > 1)
+        {
+            s_n--;
+            int k = rng.Next(s_n + 1);
+            Transform value = availableShrineSpawns[k];
+            availableShrineSpawns[k] = availableShrineSpawns[s_n];
+            availableShrineSpawns[s_n] = value;
+        }
+
+        int shrinesToSpawnCount = Mathf.Min(numberOfShrinesToSpawn, availableShrineSpawns.Count);
+        if (numberOfShrinesToSpawn > availableShrineSpawns.Count)
+        {
+            Debug.LogWarning("MapLayoutManager: Requested to spawn " + numberOfShrinesToSpawn + 
+                             " shrines, but only " + availableShrineSpawns.Count + 
+                             " unique spawn locations are available. Spawning " + shrinesToSpawnCount + " shrines.");
+        }
+         if (shrinesToSpawnCount == 0 && numberOfShrinesToSpawn > 0)
+        {
+             Debug.LogWarning("MapLayoutManager: No valid spawn locations available for shrines, although " + numberOfShrinesToSpawn + " were requested.");
+        }
+
+
+        for (int i = 0; i < shrinesToSpawnCount; i++)
+        {
+            Transform spawnPoint = availableShrineSpawns[i];
+            Instantiate(leyLineShrinePrefab, spawnPoint.position, spawnPoint.rotation);
+            Debug.Log("MapLayoutManager: Spawned Ley Line Shrine at " + spawnPoint.name + " (" + spawnPoint.position + ")");
+        }
+        Debug.Log("MapLayoutManager: Ley Line Shrine spawning complete. Spawned " + shrinesToSpawnCount + " shrines.");
     }
 }

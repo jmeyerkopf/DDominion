@@ -51,6 +51,36 @@ public class AlchemistController : MonoBehaviour
     private float scryEffectTimer = 0f;
     public Color scryedColor = Color.cyan;
 
+    // Potion Crafting
+    public List<PotionEffectType> availablePotions = new List<PotionEffectType>();
+    private Dictionary<HashSet<IngredientType>, PotionEffectType> potionRecipes;
+    private List<IngredientType> selectedIngredientsForCrafting = new List<IngredientType>();
+    public int maxSelectedIngredients = 2; // Typically 2 for this design
+
+    // Potion Effect Application Fields
+    private float baseMoveSpeed;
+    private float baseAttackDamage;
+    private Health selfHealthComponent;
+
+    public float healPotionAmount = 30f;
+
+    private float speedBoostTimer = 0f;
+    public float speedBoostMultiplier = 1.5f;
+    public float speedBoostDuration = 10.0f;
+
+    private float damageBuffTimer = 0f;
+    public float damageBuffAmount = 5.0f; // Flat amount added to base damage
+    public float damageBuffDuration = 10.0f;
+
+    public GameObject smokeCloudPrefab; // Assign in Inspector
+    public float smokeCloudDuration = 5.0f; // If the cloud has its own lifetime script, this might not be needed here
+                                         // For simplicity, we'll assume it's just instantiated.
+    public GameObject minorExplosionPrefab; // Assign in Inspector (could be a particle effect + small damage dealer)
+    public float minorExplosionDamage = 5f;
+    public float minorExplosionRadius = 1.5f;
+    public float minorExplosionNoiseRadius = 4.0f;
+
+
     void Start()
     {
         GameObject marker = GameObject.Find(heroSpawnMarkerName);
@@ -76,18 +106,250 @@ public class AlchemistController : MonoBehaviour
 
         groundLevelY = transform.position.y; 
         IsHidden = false; 
+
+        baseMoveSpeed = moveSpeed; // Store base values
+        baseAttackDamage = attackDamage;
+        selfHealthComponent = GetComponent<Health>();
+        if (selfHealthComponent == null)
+        {
+            Debug.LogError(gameObject.name + ": Health component not found for Alchemist!");
+        }
+
+        InitializePotionRecipes();
     }
 
     void Update()
     {
+        HandlePotionEffects(); // Manage active potion effect timers
         HandleMovementAndStealth();
         HandleAttack();
         HandleInteraction(); 
-        // HandleVillageInteractionState(); // This can be commented out if Alchemist has no specific timed village interaction
+        HandleCraftingInput(); 
+        // HandleVillageInteractionState(); 
         HandleDetectionLevelDecay(); 
         HandleRevealState(); 
         HandleScryState(); 
         UpdateVisuals(); 
+
+        // Input for using potion
+        if (Input.GetKeyDown(KeyCode.Alpha1)) // Using Alpha1 for Alchemist's use potion
+        {
+            UseFirstAvailablePotion();
+        }
+    }
+
+    private void InitializePotionRecipes()
+    {
+        potionRecipes = new Dictionary<HashSet<IngredientType>, PotionEffectType>(HashSet<IngredientType>.CreateSetComparer());
+
+        // Define recipes
+        potionRecipes.Add(new HashSet<IngredientType> { IngredientType.BogBloom, IngredientType.LeechDust }, PotionEffectType.HealSelf);
+        potionRecipes.Add(new HashSet<IngredientType> { IngredientType.FirePetal, IngredientType.CrystalShard }, PotionEffectType.SpeedBoost);
+        potionRecipes.Add(new HashSet<IngredientType> { IngredientType.ShadowFern, IngredientType.GraveMoss }, PotionEffectType.DamageBuff);
+        
+        // Example of a "failed" recipe (optional, or just default to NullEffect/MinorExplosion for non-matches)
+        // potionRecipes.Add(new HashSet<IngredientType> { IngredientType.BogBloom, IngredientType.FirePetal }, PotionEffectType.MinorExplosion); 
+        Debug.Log("Potion recipes initialized. Count: " + potionRecipes.Count);
+    }
+
+    void HandleCraftingInput()
+    {
+        // Select ingredient for crafting slot
+        if (Input.GetKeyDown(KeyCode.C))
+        {
+            if (selectedIngredientsForCrafting.Count < maxSelectedIngredients)
+            {
+                bool ingredientAdded = false;
+                // Iterate through all possible IngredientTypes to find one the Alchemist has and hasn't selected yet
+                foreach (IngredientType typeInInventory in System.Enum.GetValues(typeof(IngredientType)))
+                {
+                    if (collectedIngredients.Contains(typeInInventory) && !selectedIngredientsForCrafting.Contains(typeInInventory))
+                    {
+                        selectedIngredientsForCrafting.Add(typeInInventory);
+                        Debug.Log("Selected " + typeInInventory + " for crafting. Slots: " + selectedIngredientsForCrafting.Count + "/" + maxSelectedIngredients);
+                        ingredientAdded = true;
+                        break; 
+                    }
+                }
+                if (!ingredientAdded)
+                {
+                    Debug.Log("No new available ingredients to add to crafting slots, or all unique collected ingredients already selected.");
+                }
+            }
+            else
+            {
+                Debug.Log("Crafting slots are full (" + maxSelectedIngredients + "). Clear slots or attempt crafting.");
+            }
+        }
+
+        // Clear crafting slots
+        if (Input.GetKeyDown(KeyCode.X))
+        {
+            selectedIngredientsForCrafting.Clear();
+            Debug.Log("Crafting slots cleared.");
+        }
+
+        // Attempt to craft potion
+        if (Input.GetKeyDown(KeyCode.F))
+        {
+            AttemptCraftPotion();
+        }
+    }
+
+    private void AttemptCraftPotion()
+    {
+        if (selectedIngredientsForCrafting.Count != maxSelectedIngredients)
+        {
+            Debug.Log("Need to select exactly " + maxSelectedIngredients + " ingredients to craft.");
+            return;
+        }
+
+        // Verify and consume ingredients
+        List<IngredientType> tempCollectedIngredients = new List<IngredientType>(collectedIngredients);
+        bool canCraft = true;
+        foreach (IngredientType selectedIng in selectedIngredientsForCrafting)
+        {
+            if (tempCollectedIngredients.Contains(selectedIng))
+            {
+                tempCollectedIngredients.Remove(selectedIng); // Remove one instance
+            }
+            else
+            {
+                Debug.Log("Missing " + selectedIng + " to craft!");
+                canCraft = false;
+                break;
+            }
+        }
+
+        if (canCraft)
+        {
+            // Actually consume from the main list
+            foreach (IngredientType selectedIng in selectedIngredientsForCrafting)
+            {
+                collectedIngredients.Remove(selectedIng);
+            }
+
+            HashSet<IngredientType> currentSelectionHashSet = new HashSet<IngredientType>(selectedIngredientsForCrafting);
+            if (potionRecipes.TryGetValue(currentSelectionHashSet, out PotionEffectType resultEffect))
+            {
+                availablePotions.Add(resultEffect);
+                Debug.Log("Successfully crafted: " + resultEffect + ". Potions available: " + availablePotions.Count);
+            }
+            else
+            {
+                // Default failure effect
+                availablePotions.Add(PotionEffectType.NullEffect); 
+                Debug.Log("Crafting failed! Resulted in NullEffect. Potions available: " + availablePotions.Count);
+                // Optionally, trigger a MinorExplosion or other failure feedback here.
+                // NoiseManager.MakeNoise(transform.position, 3.0f); // Small noise for failed craft
+            }
+        }
+        
+        selectedIngredientsForCrafting.Clear(); // Clear slots after attempt, successful or not
+    }
+
+    void UseFirstAvailablePotion()
+    {
+        if (availablePotions.Count > 0)
+        {
+            PotionEffectType effectToApply = availablePotions[0];
+            availablePotions.RemoveAt(0);
+            ApplyPotionEffect(effectToApply);
+            Debug.Log("Used potion: " + effectToApply + ". Potions remaining: " + availablePotions.Count);
+        }
+        else
+        {
+            Debug.Log("No potions available to use.");
+        }
+    }
+
+    void ApplyPotionEffect(PotionEffectType effectType)
+    {
+        if (IsHidden) // Using a potion breaks stealth
+        {
+            IsHidden = false;
+            hideTimer = 0f;
+            Debug.Log("Alchemist used a potion, stealth broken.");
+        }
+
+        switch (effectType)
+        {
+            case PotionEffectType.HealSelf:
+                if (selfHealthComponent != null)
+                {
+                    selfHealthComponent.Heal(healPotionAmount);
+                    Debug.Log("Applied HealSelf potion. Current Health: " + selfHealthComponent.GetCurrentHealth());
+                }
+                break;
+            case PotionEffectType.SpeedBoost:
+                moveSpeed = baseMoveSpeed * speedBoostMultiplier;
+                speedBoostTimer = speedBoostDuration;
+                Debug.Log("Applied SpeedBoost potion. New speed: " + moveSpeed);
+                break;
+            case PotionEffectType.DamageBuff:
+                attackDamage = baseAttackDamage + damageBuffAmount;
+                damageBuffTimer = damageBuffDuration;
+                Debug.Log("Applied DamageBuff potion. New attack damage: " + attackDamage);
+                break;
+            case PotionEffectType.MinorExplosion:
+                Debug.Log("Potion resulted in a Minor Explosion!");
+                NoiseManager.MakeNoise(transform.position, minorExplosionNoiseRadius);
+                if (minorExplosionPrefab != null)
+                {
+                    Instantiate(minorExplosionPrefab, transform.position + Vector3.up * 0.5f, Quaternion.identity);
+                }
+                // Optional: Deal small AoE damage to nearby entities (including self if desired)
+                Collider[] hits = Physics.OverlapSphere(transform.position, minorExplosionRadius);
+                foreach (Collider hit in hits)
+                {
+                    Health health = hit.GetComponent<Health>();
+                    if (health != null)
+                    {
+                        // Can distinguish between self-damage and damaging others if needed
+                        health.TakeDamage(minorExplosionDamage); 
+                    }
+                }
+                break;
+            case PotionEffectType.SmokeCloud:
+                Debug.Log("Potion created a Smoke Cloud!");
+                if (smokeCloudPrefab != null)
+                {
+                    GameObject cloud = Instantiate(smokeCloudPrefab, transform.position, Quaternion.identity);
+                    // Smoke cloud might have its own script to destroy itself after smokeCloudDuration
+                    // Or handle its destruction here if it's a simple particle effect:
+                    // Destroy(cloud, smokeCloudDuration); 
+                }
+                NoiseManager.MakeNoise(transform.position, 3.0f); // Smoke cloud makes some noise
+                break;
+            case PotionEffectType.NullEffect:
+                Debug.Log("Potion had no effect (NullEffect).");
+                break;
+        }
+    }
+
+    void HandlePotionEffects()
+    {
+        // Speed Boost Timer
+        if (speedBoostTimer > 0)
+        {
+            speedBoostTimer -= Time.deltaTime;
+            if (speedBoostTimer <= 0)
+            {
+                moveSpeed = baseMoveSpeed; // Revert to base speed
+                Debug.Log("SpeedBoost wore off. Speed reverted to " + moveSpeed);
+            }
+        }
+
+        // Damage Buff Timer
+        if (damageBuffTimer > 0)
+        {
+            damageBuffTimer -= Time.deltaTime;
+            if (damageBuffTimer <= 0)
+            {
+                attackDamage = baseAttackDamage; // Revert to base damage
+                Debug.Log("DamageBuff wore off. Attack damage reverted to " + attackDamage);
+            }
+        }
     }
     
     void HandleDetectionLevelDecay()
