@@ -71,6 +71,11 @@ public class HeroController : MonoBehaviour
     private float revealEffectTimer = 0f;
     public Color revealedColor = Color.yellow; // Example color for reveal
 
+    // Scry Effect
+    private bool isScryed = false;
+    private float scryEffectTimer = 0f;
+    public Color scryedColor = Color.cyan;
+
     void Start()
     {
         // Reposition based on marker
@@ -120,7 +125,8 @@ public class HeroController : MonoBehaviour
         HandleVillageInteractionState(); 
         HandleDetectionLevelDecay(); 
         UpdateCloakTimers(); 
-        HandleRevealState(); // Manage reveal effect duration
+        HandleRevealState(); 
+        HandleScryState(); // Manage scry effect duration
         UpdateVisuals(); 
     }
     
@@ -454,19 +460,23 @@ public class HeroController : MonoBehaviour
     {
         if (heroRenderer == null || heroRenderer.material == null) return;
 
-        if (isRevealed)
+        if (isRevealed) 
         {
             heroRenderer.material.color = revealedColor;
-        }
-        else if (isCloaked)
+        } 
+        else if (isScryed) 
         {
-            heroRenderer.material.color = cloakColor;
-        }
-        else if (IsHidden)
+            heroRenderer.material.color = scryedColor;
+        } 
+        else if (isCloaked) 
+        {
+            heroRenderer.material.color = cloakColor; 
+        } 
+        else if (IsHidden) 
         {
             heroRenderer.material.color = stealthColor;
-        }
-        else
+        } 
+        else 
         {
             heroRenderer.material.color = originalColor;
         }
@@ -499,6 +509,29 @@ public class HeroController : MonoBehaviour
                 revealEffectTimer = 0f;
                 Debug.Log(gameObject.name + " reveal effect wore off.");
                 UpdateVisuals(); // Revert to normal/stealth/cloak color based on current state
+            }
+        }
+    }
+
+    public void ApplyScryEffect(float duration)
+    {
+        Debug.Log(gameObject.name + " is being SCRYED for " + duration + " seconds!");
+        isScryed = true;
+        scryEffectTimer = duration;
+        UpdateVisuals(); // Immediately update visuals
+    }
+
+    void HandleScryState()
+    {
+        if (isScryed)
+        {
+            scryEffectTimer -= Time.deltaTime;
+            if (scryEffectTimer <= 0)
+            {
+                isScryed = false;
+                scryEffectTimer = 0f;
+                Debug.Log(gameObject.name + " scry effect wore off.");
+                UpdateVisuals(); 
             }
         }
     }

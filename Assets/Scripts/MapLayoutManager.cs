@@ -14,6 +14,11 @@ public class MapLayoutManager : MonoBehaviour
     public GameObject noiseTrapPrefab; 
     public List<Transform> possibleSpawnLocations = new List<Transform>();
 
+    // Ingredient Source Spawning
+    public List<GameObject> ingredientSourcePrefabs;
+    public List<Transform> possibleIngredientSpawnLocations;
+    public int numberOfIngredientsToSpawn = 5;
+
     void Awake()
     {
         List<Transform> markersToPosition = new List<Transform>();
@@ -112,6 +117,77 @@ public class MapLayoutManager : MonoBehaviour
         {
              Debug.LogWarning("MapLayoutManager: NoiseTrapLocationMarker is set, but NoiseTrapPrefab not assigned. Trap not instantiated.");
         }
-        Debug.Log("MapLayoutManager: Layout randomization complete.");
+        Debug.Log("MapLayoutManager: Layout randomization complete for standard markers.");
+
+        // --- Ingredient Source Spawning Logic ---
+        if (ingredientSourcePrefabs == null || ingredientSourcePrefabs.Count == 0)
+        {
+            Debug.LogWarning("MapLayoutManager: ingredientSourcePrefabs list is null or empty. Skipping ingredient spawning.");
+            return; // Exit if no ingredient prefabs to spawn
+        }
+        if (ingredientSourcePrefabs.Any(prefab => prefab == null))
+        {
+            Debug.LogWarning("MapLayoutManager: ingredientSourcePrefabs list contains one or more null entries. These will be skipped.");
+            ingredientSourcePrefabs = ingredientSourcePrefabs.Where(prefab => prefab != null).ToList();
+            if (ingredientSourcePrefabs.Count == 0)
+            {
+                Debug.LogWarning("MapLayoutManager: After removing null entries, ingredientSourcePrefabs list is empty. Skipping ingredient spawning.");
+                return;
+            }
+        }
+
+
+        if (possibleIngredientSpawnLocations == null || possibleIngredientSpawnLocations.Count == 0)
+        {
+            Debug.LogWarning("MapLayoutManager: possibleIngredientSpawnLocations list is null or empty. Skipping ingredient spawning.");
+            return; // Exit if no spawn locations
+        }
+
+        List<Transform> availableIngredientSpawns = new List<Transform>(possibleIngredientSpawnLocations.Where(loc => loc != null));
+        if (availableIngredientSpawns.Count == 0)
+        {
+            Debug.LogWarning("MapLayoutManager: All entries in possibleIngredientSpawnLocations are null. Skipping ingredient spawning.");
+            return;
+        }
+        
+        // Shuffle availableIngredientSpawns (using the same Fisher-Yates shuffle)
+        int m = availableIngredientSpawns.Count;
+        while (m > 1)
+        {
+            m--;
+            int k = rng.Next(m + 1); // rng is from the previous part of Awake()
+            Transform value = availableIngredientSpawns[k];
+            availableIngredientSpawns[k] = availableIngredientSpawns[m];
+            availableIngredientSpawns[m] = value;
+        }
+
+        int countToSpawn = Mathf.Min(numberOfIngredientsToSpawn, availableIngredientSpawns.Count);
+        if (numberOfIngredientsToSpawn > availableIngredientSpawns.Count)
+        {
+            Debug.LogWarning("MapLayoutManager: Requested to spawn " + numberOfIngredientsToSpawn + 
+                             " ingredients, but only " + availableIngredientSpawns.Count + 
+                             " unique spawn locations are available. Spawning " + countToSpawn + " ingredients.");
+        }
+        if (countToSpawn == 0 && numberOfIngredientsToSpawn > 0) // This case happens if availableIngredientSpawns.Count was 0 but numberOfIngredientsToSpawn > 0
+        {
+             Debug.LogWarning("MapLayoutManager: No valid spawn locations available for ingredients, although " + numberOfIngredientsToSpawn + " were requested.");
+        }
+
+
+        for (int i = 0; i < countToSpawn; i++)
+        {
+            if (ingredientSourcePrefabs.Count == 0) // Should be caught earlier, but as a safeguard
+            {
+                Debug.LogError("MapLayoutManager: No ingredient source prefabs available to spawn.");
+                break;
+            }
+
+            GameObject prefabToSpawn = ingredientSourcePrefabs[Random.Range(0, ingredientSourcePrefabs.Count)];
+            Transform spawnPoint = availableIngredientSpawns[i];
+
+            Instantiate(prefabToSpawn, spawnPoint.position, spawnPoint.rotation); // Using spawnPoint.rotation
+            Debug.Log("MapLayoutManager: Spawned " + prefabToSpawn.name + " at " + spawnPoint.name + " (" + spawnPoint.position + ")");
+        }
+        Debug.Log("MapLayoutManager: Ingredient source spawning complete. Spawned " + countToSpawn + " ingredients.");
     }
 }

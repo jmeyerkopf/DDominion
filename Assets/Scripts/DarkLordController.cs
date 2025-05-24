@@ -23,6 +23,15 @@ public class DarkLordController : MonoBehaviour
     private bool isPendingScoutDispatch = false;
     public LayerMask groundLayerMask; // Set this in the Inspector
 
+    // Scrying Orb Ability
+    public float scryingOrbCost = 30f;
+    public float scryingOrbDuration = 5.0f;
+    public float scryingOrbCooldown = 45.0f;
+    public float scryingOrbRadius = 5.0f;
+    private float scryingOrbCooldownTimer = 0f;
+    // public LayerMask heroLayerMask; // Not strictly needed if using FindGameObjectsWithTag
+    private bool isPendingScryingOrb = false;
+
     void Start()
     {
         if (scoutPrefab == null)
@@ -92,6 +101,57 @@ public class DarkLordController : MonoBehaviour
             Debug.Log("Alpha3 key pressed - attempting to spawn Priest.");
             TrySpawnPriest();
         }
+
+        // Scrying Orb Cooldown
+        if (scryingOrbCooldownTimer > 0)
+        {
+            scryingOrbCooldownTimer -= Time.deltaTime;
+        }
+
+        // Input for Scrying Orb
+        if (Input.GetKeyDown(KeyCode.Alpha4))
+        {
+            if (scryingOrbCooldownTimer <= 0 && currentEvilEnergy >= scryingOrbCost)
+            {
+                if (!isPendingScryingOrb)
+                {
+                    Debug.Log("Alpha4 key pressed - Scrying Orb ready. Click on map to target.");
+                    isPendingScryingOrb = true;
+                    isPendingScoutDispatch = false; // Cancel pending scout dispatch if any
+                }
+                else
+                {
+                     Debug.Log("Scrying Orb targeting cancelled.");
+                    isPendingScryingOrb = false;
+                }
+            }
+            else if (currentEvilEnergy < scryingOrbCost)
+            {
+                Debug.Log("Not enough Evil Energy for Scrying Orb. Current: " + currentEvilEnergy + ", Cost: " + scryingOrbCost);
+                isPendingScryingOrb = false;
+            }
+            else
+            {
+                Debug.Log("Scrying Orb is on cooldown. Time remaining: " + scryingOrbCooldownTimer);
+                isPendingScryingOrb = false;
+            }
+        }
+
+        if (isPendingScryingOrb && Input.GetMouseButtonDown(0))
+        {
+            Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
+            RaycastHit hit;
+
+            if (Physics.Raycast(ray, out hit, Mathf.Infinity, groundLayerMask))
+            {
+                ExecuteScryingOrb(hit.point);
+                isPendingScryingOrb = false;
+            }
+            else
+            {
+                Debug.Log("Could not find a valid point on the ground for Scrying Orb. Click on terrain.");
+            }
+        }
     }
 
     public void SpawnScout(Vector3 spawnPosition, Vector3 targetDispatchLocation)
@@ -160,6 +220,39 @@ public class DarkLordController : MonoBehaviour
         else
         {
             Debug.Log("Not enough Evil Energy to spawn Priest. Current: " + currentEvilEnergy + ", Cost: " + priestSpawnCost);
+        }
+    }
+
+    void ExecuteScryingOrb(Vector3 targetLocation)
+    {
+        currentEvilEnergy -= scryingOrbCost;
+        scryingOrbCooldownTimer = scryingOrbCooldown;
+        Debug.Log("Scrying Orb activated at " + targetLocation + ". Energy deducted: " + scryingOrbCost);
+
+        GameObject[] heroes = GameObject.FindGameObjectsWithTag("Hero");
+        foreach (GameObject heroGO in heroes)
+        {
+            if (!heroGO.activeInHierarchy) continue;
+
+            float distance = Vector3.Distance(heroGO.transform.position, targetLocation);
+            if (distance <= scryingOrbRadius)
+            {
+                HeroController hc = heroGO.GetComponent<HeroController>();
+                if (hc != null)
+                {
+                    hc.ApplyScryEffect(scryingOrbDuration);
+                    Debug.Log("Scrying Orb reveals Goblin Hero: " + heroGO.name + " at " + heroGO.transform.position);
+                }
+                else
+                {
+                    KnightController kc = heroGO.GetComponent<KnightController>();
+                    if (kc != null)
+                    {
+                        kc.ApplyScryEffect(scryingOrbDuration);
+                        Debug.Log("Scrying Orb reveals Knight Hero: " + heroGO.name + " at " + heroGO.transform.position);
+                    }
+                }
+            }
         }
     }
 }

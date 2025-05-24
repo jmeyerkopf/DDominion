@@ -84,4 +84,14 @@ public class Health : MonoBehaviour
         }
         Debug.Log(gameObject.name + " healed for " + amount + ". Current health: " + currentHealth);
     }
+
+    public void IncreaseMaxHealth(float amount)
+    {
+        if (amount <= 0) return; // Do nothing if amount is not positive
+
+        maxHealth += amount;
+        // currentHealth += amount; // Optional: Also increase current health by the same amount
+                                 // The KnightController will call Heal separately as per plan.
+        Debug.Log(gameObject.name + " max health increased by " + amount + ". New max health: " + maxHealth);
+    }
 }

@@ -56,7 +56,19 @@ public class KnightController : MonoBehaviour
     private float defensiveStanceTimer = 0f;
     private float defensiveStanceActiveTimer = 0f;
     public bool isDefensiveStanceActive = false;
-    private Health knightHealthComponent; // Cache for Health component
+    private Health selfHealth; // Renamed knightHealthComponent for clarity and leveling
+
+    // Leveling System
+    public int[] valorToNextLevel = { 50, 100, 150 }; 
+    public int currentLevel = 1;
+    public int maxLevel; // Will be set in Start
+    public float attackDamagePerLevel = 5f;
+    public float maxHealthPerLevel = 20f;
+
+    // Scry Effect
+    private bool isScryed = false;
+    private float scryEffectTimer = 0f;
+    public Color scryedColor = Color.cyan;
 
     void Start()
     {
@@ -79,13 +91,14 @@ public class KnightController : MonoBehaviour
         {
             Debug.LogError(gameObject.name + ": Renderer or Material not found on Knight GameObject!");
         }
-        knightHealthComponent = GetComponent<Health>();
-        if (knightHealthComponent == null)
+        selfHealth = GetComponent<Health>(); // Assign selfHealth
+        if (selfHealth == null)
         {
             Debug.LogError(gameObject.name + ": Health component not found on Knight GameObject!");
         }
 
         groundLevelY = transform.position.y; 
+        maxLevel = valorToNextLevel.Length + 1; // Initialize maxLevel
     }
 
     void Update()
@@ -113,6 +126,7 @@ public class KnightController : MonoBehaviour
         HandleInteractionWithVillage(); 
         HandleDetectionLevelDecay(); 
         HandleRevealState(); 
+        HandleScryState(); // Manage scry effect duration
         UpdateVisuals(); 
     }
     
@@ -185,10 +199,40 @@ public class KnightController : MonoBehaviour
                         {
                             valorPoints += valorFromKill;
                             Debug.Log("Knight gained " + valorFromKill + " Valor for slaying " + minionGO.name + ". Total Valor: " + valorPoints);
+                            CheckForLevelUp(); // Check for level up after gaining valor
                         }
                         break; // Knight hits one target per swing
                     }
                 }
+            }
+        }
+    }
+
+    private void CheckForLevelUp()
+    {
+        while (currentLevel < maxLevel && valorPoints >= valorToNextLevel[currentLevel - 1])
+        {
+            int valorNeededForThisLevel = valorToNextLevel[currentLevel - 1];
+            valorPoints -= valorNeededForThisLevel; // Valor carries over excess
+            currentLevel++;
+
+            // Apply Stat Boosts
+            attackDamage += attackDamagePerLevel;
+            if (selfHealth != null)
+            {
+                selfHealth.IncreaseMaxHealth(maxHealthPerLevel);
+                selfHealth.Heal(maxHealthPerLevel); // Heal by the increased amount
+            }
+            
+            Debug.Log("Knight leveled up to Level " + currentLevel + "! Attack: " + attackDamage + 
+                      (selfHealth != null ? ", Max Health: " + selfHealth.GetMaxHealth() : "") + 
+                      ". Valor towards next level: " + valorPoints);
+
+            if (currentLevel == maxLevel)
+            {
+                Debug.Log("Knight reached Max Level!");
+                // valorPoints might still accumulate but won't trigger further level ups.
+                break; 
             }
         }
     }
@@ -335,6 +379,10 @@ public class KnightController : MonoBehaviour
         {
             heroRenderer.material.color = revealedColor;
         }
+        else if (isScryed)
+        {
+            heroRenderer.material.color = scryedColor;
+        }
         else
         {
             heroRenderer.material.color = originalColor;
@@ -359,6 +407,29 @@ public class KnightController : MonoBehaviour
                 isRevealed = false;
                 revealEffectTimer = 0f;
                 Debug.Log(gameObject.name + " reveal effect wore off.");
+                UpdateVisuals(); 
+            }
+        }
+    }
+
+    public void ApplyScryEffect(float duration)
+    {
+        Debug.Log(gameObject.name + " is being SCRYED for " + duration + " seconds!");
+        isScryed = true;
+        scryEffectTimer = duration;
+        UpdateVisuals(); // Immediately update visuals
+    }
+
+    void HandleScryState()
+    {
+        if (isScryed)
+        {
+            scryEffectTimer -= Time.deltaTime;
+            if (scryEffectTimer <= 0)
+            {
+                isScryed = false;
+                scryEffectTimer = 0f;
+                Debug.Log(gameObject.name + " scry effect wore off.");
                 UpdateVisuals(); 
             }
         }
