@@ -40,6 +40,10 @@ public class DarkLordController : MonoBehaviour
     public float fearSurgeCooldown = 60.0f;
     private float fearSurgeCooldownTimer = 0f;
 
+    // Minion Population Cap
+    public int maxMinionPopulation = 10;
+    public int currentMinionPopulation = 0;
+
     void Start()
     {
         if (scoutPrefab == null)
@@ -193,6 +197,11 @@ public class DarkLordController : MonoBehaviour
             return;
         }
 
+        if (currentMinionPopulation >= maxMinionPopulation)
+        {
+            Debug.Log("Max minion population reached. Cannot spawn Scout.");
+            return;
+        }
         if (currentEvilEnergy >= scoutSpawnCost)
         {
             currentEvilEnergy -= scoutSpawnCost;
@@ -206,7 +215,8 @@ public class DarkLordController : MonoBehaviour
             {
                 Debug.LogError("Spawned Scout does not have a ScoutAI component!");
             }
-            Debug.Log("Spawned Scout at: " + spawnPosition + ", dispatched to: " + targetDispatchLocation + ". Energy deducted: " + scoutSpawnCost + ". Remaining energy: " + currentEvilEnergy);
+            currentMinionPopulation++;
+            Debug.Log("Spawned Scout at: " + spawnPosition + ", dispatched to: " + targetDispatchLocation + ". Energy deducted: " + scoutSpawnCost + ". Remaining energy: " + currentEvilEnergy + ". Current Population: " + currentMinionPopulation);
         }
         else
         {
@@ -222,11 +232,17 @@ public class DarkLordController : MonoBehaviour
             return;
         }
 
+        if (currentMinionPopulation >= maxMinionPopulation)
+        {
+            Debug.Log("Max minion population reached. Cannot spawn Tank.");
+            return;
+        }
         if (currentEvilEnergy >= tankSpawnCost)
         {
             currentEvilEnergy -= tankSpawnCost;
             Instantiate(tankPrefab, initialSpawnPosition, Quaternion.identity); // Using initialSpawnPosition for consistency
-            Debug.Log("Tank spawned. Energy deducted: " + tankSpawnCost + ". Remaining energy: " + currentEvilEnergy);
+            currentMinionPopulation++;
+            Debug.Log("Tank spawned. Energy deducted: " + tankSpawnCost + ". Remaining energy: " + currentEvilEnergy + ". Current Population: " + currentMinionPopulation);
         }
         else
         {
@@ -242,11 +258,17 @@ public class DarkLordController : MonoBehaviour
             return;
         }
 
+        if (currentMinionPopulation >= maxMinionPopulation)
+        {
+            Debug.Log("Max minion population reached. Cannot spawn Priest.");
+            return;
+        }
         if (currentEvilEnergy >= priestSpawnCost)
         {
             currentEvilEnergy -= priestSpawnCost;
             Instantiate(priestPrefab, initialSpawnPosition, Quaternion.identity); // Using initialSpawnPosition for now
-            Debug.Log("Priest spawned. Energy deducted: " + priestSpawnCost + ". Remaining energy: " + currentEvilEnergy);
+            currentMinionPopulation++;
+            Debug.Log("Priest spawned. Energy deducted: " + priestSpawnCost + ". Remaining energy: " + currentEvilEnergy + ". Current Population: " + currentMinionPopulation);
         }
         else
         {
@@ -260,7 +282,7 @@ public class DarkLordController : MonoBehaviour
         scryingOrbCooldownTimer = scryingOrbCooldown;
         Debug.Log("Scrying Orb activated at " + targetLocation + ". Energy deducted: " + scryingOrbCost);
 
-        GameObject[] heroes = GameObject.FindGameObjectsWithTag("Hero");
+        GameObject[] heroes = GameObject.FindGameObjectsWithTag("HeroPlayer"); // Updated tag
         foreach (GameObject heroGO in heroes)
         {
             if (!heroGO.activeInHierarchy) continue;
@@ -268,20 +290,12 @@ public class DarkLordController : MonoBehaviour
             float distance = Vector3.Distance(heroGO.transform.position, targetLocation);
             if (distance <= scryingOrbRadius)
             {
-                HeroController hc = heroGO.GetComponent<HeroController>();
-                if (hc != null)
+                // Attempt to get HeroControllerBase to cover all hero types
+                HeroControllerBase heroBase = heroGO.GetComponent<HeroControllerBase>();
+                if (heroBase != null)
                 {
-                    hc.ApplyScryEffect(scryingOrbDuration);
-                    Debug.Log("Scrying Orb reveals Goblin Hero: " + heroGO.name + " at " + heroGO.transform.position);
-                }
-                else
-                {
-                    KnightController kc = heroGO.GetComponent<KnightController>();
-                    if (kc != null)
-                    {
-                        kc.ApplyScryEffect(scryingOrbDuration);
-                        Debug.Log("Scrying Orb reveals Knight Hero: " + heroGO.name + " at " + heroGO.transform.position);
-                    }
+                    heroBase.ApplyScryEffect(scryingOrbDuration);
+                    Debug.Log("Scrying Orb reveals Hero: " + heroGO.name + " (Type: " + heroBase.GetType().Name + ") at " + heroGO.transform.position);
                 }
             }
         }
@@ -317,7 +331,7 @@ public class DarkLordController : MonoBehaviour
         }
 
         // Effect on Heroes
-        GameObject[] heroes = GameObject.FindGameObjectsWithTag("Hero");
+        GameObject[] heroes = GameObject.FindGameObjectsWithTag("HeroPlayer"); // Updated tag
         foreach (GameObject heroGO in heroes)
         {
             if (heroGO.activeInHierarchy && Vector3.Distance(heroGO.transform.position, surgeOrigin) <= fearSurgeRadius)
@@ -325,38 +339,20 @@ public class DarkLordController : MonoBehaviour
                 Vector3 repelDir = (heroGO.transform.position - surgeOrigin).normalized;
                 repelDir.y = 0; // Ensure horizontal knockback
 
-                // Try to get any of the known hero controllers
-                HeroController hc = heroGO.GetComponent<HeroController>();
-                if (hc != null)
+                // Try to get any of the known hero controllers via HeroControllerBase
+                HeroControllerBase heroBase = heroGO.GetComponent<HeroControllerBase>();
+                if (heroBase != null)
                 {
-                    hc.ApplyKnockback(repelDir * fearSurgeHeroRepelForce, 0.2f);
-                    Debug.Log("Fear Surge repels Goblin Hero: " + heroGO.name);
-                    continue; // Move to next hero
-                }
-
-                KnightController kc = heroGO.GetComponent<KnightController>();
-                if (kc != null)
-                {
-                    kc.ApplyKnockback(repelDir * fearSurgeHeroRepelForce, 0.2f);
-                    Debug.Log("Fear Surge repels Knight Hero: " + heroGO.name);
-                    continue; 
-                }
-
-                AlchemistController ac = heroGO.GetComponent<AlchemistController>();
-                if (ac != null)
-                {
-                    ac.ApplyKnockback(repelDir * fearSurgeHeroRepelForce, 0.2f);
-                    Debug.Log("Fear Surge repels Alchemist Hero: " + heroGO.name);
-                    continue; 
-                }
-
-                WitchController wc = heroGO.GetComponent<WitchController>();
-                if (wc != null)
-                {
-                    wc.ApplyKnockback(repelDir * fearSurgeHeroRepelForce, 0.2f);
-                    Debug.Log("Fear Surge repels Witch Hero: " + heroGO.name);
+                    heroBase.ApplyKnockback(repelDir * fearSurgeHeroRepelForce, 0.2f);
+                    Debug.Log("Fear Surge repels Hero: " + heroGO.name + " (Type: " + heroBase.GetType().Name + ")");
                 }
             }
         }
+    }
+
+    public void MinionDied()
+    {
+        currentMinionPopulation = Mathf.Max(0, currentMinionPopulation - 1);
+        Debug.Log("A minion died. Current population: " + currentMinionPopulation);
     }
 }

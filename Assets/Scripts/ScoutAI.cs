@@ -21,9 +21,11 @@ public class ScoutAI : MonoBehaviour
     private bool isWandering = true;
     private float groundLevelY = 0.5f; 
     
-    private HeroController heroController; 
-    private Health heroHealth; 
-    private Transform heroTransformInternal;
+    // Variables to store the current hero being focused on for detection/chase
+    private HeroControllerBase focusedHeroController;
+    private Transform focusedHeroTransform;
+    private Health focusedHeroHealth;
+    private GoblinOutlawController focusedGoblinHeroController; // For specific checks like cloak/village
 
     // Attack properties
     public float attackDamage = 5.0f;
@@ -60,20 +62,6 @@ public class ScoutAI : MonoBehaviour
             ChooseNewWaypoint();
         }
         
-        GameObject heroObject = GameObject.FindGameObjectWithTag("Hero");
-        if (heroObject != null)
-        {
-            heroTransformInternal = heroObject.transform;
-            heroController = heroObject.GetComponent<HeroController>();
-            if (heroController == null) Debug.LogError("ScoutAI: Hero GameObject does not have a HeroController component!");
-            heroHealth = heroObject.GetComponent<Health>();
-            if (heroHealth == null) Debug.LogError("ScoutAI: Hero GameObject does not have a Health component!");
-        }
-        else
-        {
-            Debug.LogWarning("ScoutAI: Could not find GameObject with tag 'Hero'. Detection/Chasing/Noise will not work effectively.");
-        }
-
         if (eyePosition == null) eyePosition = transform;
     }
 
@@ -86,127 +74,138 @@ public class ScoutAI : MonoBehaviour
             {
                 isStunned = false;
                 Debug.Log(gameObject.name + " is no longer stunned.");
+                ResetFocus(); // Clear focused hero on stun recovery
             }
-            // Potentially stop any current movement (e.g., if using NavMeshAgent, agent.isStopped = true)
-            // For Translate-based movement, simply returning here prevents further action processing.
             return; 
-        }
-
-        if (heroController == null || heroTransformInternal == null) 
-        {
-            if (isWandering) MoveToWanderPoint();
-            return;
         }
         
         if (attackTimer > 0) attackTimer -= Time.deltaTime;
         if (howlTimer > 0) howlTimer -= Time.deltaTime;
 
-        bool canSeeHero = CheckVision();
+        GameObject[] heroObjects = GameObject.FindGameObjectsWithTag("HeroPlayer");
+        GameObject bestTargetGO = null;
+        float closestDistSqr = Mathf.Infinity;
 
-        if (canSeeHero)
+        // Find the closest, visible hero
+        foreach (GameObject heroGO in heroObjects)
         {
-            // Priority 1: Check if hero is interacting with a village (if visible)
-            if (heroController.isInteractingWithVillage && 
-                heroController.currentInteractingVillage != null && 
-                heroController.currentVillageInteractionTime > 1.0f && 
-                !isActivelyChasing) // Don't override active chase for this, but can start investigating
+            if (!heroGO.activeInHierarchy) continue;
+            if (CheckVision(heroGO))
             {
-                // Player is seen interacting with a village for more than 1 second.
-                // Scout becomes suspicious of the village.
-                Debug.Log(gameObject.name + " saw hero interacting with " + heroController.currentInteractingVillage.name + " for " + heroController.currentVillageInteractionTime + "s. Investigating village.");
-                investigationTarget = heroController.currentInteractingVillage.transform.position;
-                investigatingNoise = true; // Re-use state to move towards the village
-                isWandering = false;
-                isActivelyChasing = false; // Not chasing hero directly, but investigating village
-                heroSpottedTime = 0; // Reset direct hero spotting time as focus is now village
-                // This path makes the scout go to the village. 
-                // Further logic for what happens upon reaching the village can be added later.
-            }
-            // Priority 2: Normal detection and chasing logic if not investigating village due to interaction
-            else if (!investigatingNoise || !isWandering) // if investigatingNoise is true from above, skip this else if.
-                                                          // if isWandering is false from above, skip this else if.
-                                                          // This condition ensures that if we just set investigatingNoise to true for village, we don't immediately fall into hero chase.
-            {
-                investigatingNoise = false; // Visual detection of hero (not village interaction) overrides general noise investigation
-                heroSpottedTime += Time.deltaTime;
-
-                if (heroSpottedTime >= timeToDetectHero) // Using timeToDetectHero as the 2-second continuous LoS requirement
+                float distSqr = (heroGO.transform.position - transform.position).sqrMagnitude;
+                if (distSqr < closestDistSqr)
                 {
-                    heroController.isBeingActivelyDetected = true;
-                if (heroController.detectionLevel < 1.0f)
-                {
-                    // The original timeToDetectHero now represents how fast detectionLevel fills *after* continuous sight.
-                    // For simplicity, let's make it fill reasonably fast once continuous sight is achieved.
-                    // Or, we can assume timeToDetectHero was meant for the continuous sight part.
-                    // Let's adjust so detectionLevel fills over 1 second *after* the 2-second continuous LoS.
-                    heroController.detectionLevel += Time.deltaTime / 1.0f; 
-                }
-
-                if (heroController.detectionLevel >= 1.0f)
-                {
-                    if (!isActivelyChasing && howlTimer <= 0) // Just reached full detection and can howl
-                    {
-                        if (MinionAlertManager.Instance != null)
-                        {
-                            Debug.Log(gameObject.name + " howls! Alerting others.");
-                            MinionAlertManager.Instance.AlertOthers(gameObject, heroTransformInternal.position);
-                            howlTimer = howlCooldown;
-                        }
-                        else
-                        {
-                            Debug.LogWarning(gameObject.name + " wants to howl, but MinionAlertManager instance is not found.");
-                        }
-                    }
-
-                    isActivelyChasing = true;
-                    isWandering = false;
-                    MoveTowards(heroTransformInternal.position);
-
-                    if (Vector3.Distance(transform.position, heroTransformInternal.position) <= attackRange && attackTimer <= 0)
-                    {
-                        if (heroHealth != null && heroTransformInternal.gameObject.activeInHierarchy)
-                        {
-                            heroHealth.TakeDamage(attackDamage);
-                            attackTimer = attackCooldown;
-                        }
-                    }
-                }
-                else
-                {
-                    // Still in the phase of increasing detection level, but continuously spotted
-                    isActivelyChasing = false; // Not fully chasing yet, but aware
-                    MoveTowards(heroTransformInternal.position); // Turn towards hero
-                }
-            }
-                else
-                {
-                    // Hero is in sight, but not for long enough to be "detected"
-                    // Optionally, turn towards hero or enter a "suspicious" state here.
-                    // For now, we just wait until heroSpottedTime reaches the threshold.
-                    // Resetting isBeingActivelyDetected if they were previously detected but LoS was broken and reacquired.
-                    if (heroController.detectionLevel < 1.0f) heroController.isBeingActivelyDetected = false;
+                    closestDistSqr = distSqr;
+                    bestTargetGO = heroGO;
                 }
             }
         }
-        else // Cannot see Hero
+
+        if (bestTargetGO != null) // A hero is visible
         {
-            heroSpottedTime = 0f; // Reset spotted time if hero is not visible
-            
-            // If we were chasing but lost sight, and detection level is low, stop chasing.
-            if (isActivelyChasing && heroController.detectionLevel < 1.0f) 
+            // If we are not already focusing on this hero, or if we had no focus, switch focus.
+            if (focusedHeroTransform == null || focusedHeroTransform != bestTargetGO.transform)
             {
-                isActivelyChasing = false;
-                // Keep investigatingNoise true if it was set due to village interaction or other alerts.
-                // Only set investigatingNoise to false if the reason for it (like direct hero sight) is gone.
-                // If investigatingNoise was true due to an alert or village, it should persist until target is reached.
+                Debug.Log(gameObject.name + " new focus: " + bestTargetGO.name);
+                focusedHeroTransform = bestTargetGO.transform;
+                focusedHeroController = bestTargetGO.GetComponent<HeroControllerBase>();
+                focusedHeroHealth = bestTargetGO.GetComponent<Health>();
+                focusedGoblinHeroController = bestTargetGO.GetComponent<GoblinOutlawController>();
+                heroSpottedTime = 0f; // Reset spotted time for new target
+                 // Reset detection on previous target if it existed and is different
+                if(focusedHeroController != null && focusedHeroController.gameObject != bestTargetGO)
+                {
+                    focusedHeroController.isBeingActivelyDetected = false;
+                    // detectionLevel will decay naturally
+                }
             }
-            // If not actively chasing (hero or village) and not already investigating a noise source (like a direct sound or alert):
-            // This is where we can look for clues.
+
+            // Now, all logic uses the 'focusedHero...' variables
+            bool interactingWithVillage = false;
+            GameObject currentVillage = null;
+            float villageInteractionTime = 0f;
+
+            if (focusedGoblinHeroController != null)
+            {
+                interactingWithVillage = focusedGoblinHeroController.isInteractingWithVillage;
+                currentVillage = focusedGoblinHeroController.currentInteractingVillage;
+                villageInteractionTime = focusedGoblinHeroController.currentVillageInteractionTime;
+            }
+
+            if (interactingWithVillage && currentVillage != null && villageInteractionTime > 1.0f && !isActivelyChasing)
+            {
+                Debug.Log(gameObject.name + " saw focused hero " + focusedHeroTransform.name + " interacting with " + currentVillage.name + ". Investigating village.");
+                investigationTarget = currentVillage.transform.position;
+                investigatingNoise = true;
+                isWandering = false;
+                isActivelyChasing = false;
+                // heroSpottedTime = 0; // Keep heroSpottedTime for the hero, this is about village
+            }
+            else if (!investigatingNoise || !isWandering) 
+            {
+                investigatingNoise = false; 
+                heroSpottedTime += Time.deltaTime;
+
+                if (heroSpottedTime >= timeToDetectHero) 
+                {
+                    focusedHeroController.isBeingActivelyDetected = true;
+                    if (focusedHeroController.detectionLevel < 1.0f)
+                    {
+                        focusedHeroController.detectionLevel += Time.deltaTime / 1.0f; 
+                    }
+
+                    if (focusedHeroController.detectionLevel >= 1.0f)
+                    {
+                        if (!isActivelyChasing && howlTimer <= 0) 
+                        {
+                            if (MinionAlertManager.Instance != null)
+                            {
+                                Debug.Log(gameObject.name + " howls! Alerting others about " + focusedHeroTransform.name);
+                                MinionAlertManager.Instance.AlertOthers(gameObject, focusedHeroTransform.position);
+                                howlTimer = howlCooldown;
+                            }
+                            else
+                            {
+                                Debug.LogWarning(gameObject.name + " wants to howl, but MinionAlertManager instance is not found.");
+                            }
+                        }
+                        isActivelyChasing = true;
+                        isWandering = false;
+                        MoveTowards(focusedHeroTransform.position);
+
+                        if (Vector3.Distance(transform.position, focusedHeroTransform.position) <= attackRange && attackTimer <= 0)
+                        {
+                            if (focusedHeroHealth != null && focusedHeroTransform.gameObject.activeInHierarchy)
+                            {
+                                focusedHeroHealth.TakeDamage(attackDamage);
+                                attackTimer = attackCooldown;
+                            }
+                        }
+                    }
+                    else 
+                    {
+                        isActivelyChasing = false; 
+                        MoveTowards(focusedHeroTransform.position); 
+                    }
+                }
+                else 
+                {
+                    if (focusedHeroController.detectionLevel < 1.0f) focusedHeroController.isBeingActivelyDetected = false;
+                }
+            }
+        }
+        else // No hero is currently visible
+        {
+            if (focusedHeroController != null) // If we were focusing on a hero
+            {
+                focusedHeroController.isBeingActivelyDetected = false; // Mark them as not actively detected
+            }
+            ResetFocus(); // Clear current focus
+
             if (!isActivelyChasing && !investigatingNoise) 
             {
-                bool foundClue = SearchForClues(); // Try to find clues first
-
-                if (!foundClue) // If no clues found, then check for general noise
+                bool foundClue = SearchForClues();
+                if (!foundClue) 
                 {
                     Vector3 noisePos;
                 float noiseRad;
@@ -272,21 +271,45 @@ public class ScoutAI : MonoBehaviour
         }
     }
 
-    bool CheckVision()
+    // CheckVision now takes a specific hero GameObject as a parameter
+    bool CheckVision(GameObject heroGO)
     {
-        if (heroController == null || heroTransformInternal == null || !heroTransformInternal.gameObject.activeInHierarchy)
+        if (heroGO == null || !heroGO.activeInHierarchy)
         {
             return false;
         }
 
-        // Respect Cloak and standard stealth (IsHidden)
-        if (heroController.isCloaked || heroController.IsHidden)
+        HeroControllerBase heroController = heroGO.GetComponent<HeroControllerBase>();
+        GoblinOutlawController goblinController = heroGO.GetComponent<GoblinOutlawController>();
+        // Add other specific hero types if needed for unique stealth checks
+
+        if (heroController == null) return false; // Should always have HeroControllerBase
+
+        // Generalized stealth check
+        bool isStealthed = false;
+        if (goblinController != null) 
+        {
+            isStealthed = goblinController.isCloaked || goblinController.IsHidden;
+        }
+        else 
+        {
+            AlchemistController ac = heroController as AlchemistController;
+            if (ac != null) isStealthed = ac.IsHidden;
+            else
+            {
+                WitchController wc = heroController as WitchController;
+                if (wc != null) isStealthed = wc.IsHidden;
+                // KnightController does not have IsHidden/isCloaked
+            }
+        }
+
+        if (isStealthed)
         {
             return false;
         }
 
         Vector3 rayOrigin = eyePosition.position;
-        Vector3 targetPosition = heroTransformInternal.position + Vector3.up * 0.5f; 
+        Vector3 targetPosition = heroGO.transform.position + Vector3.up * 0.5f; 
         
         Vector3 directionToHero = (targetPosition - rayOrigin).normalized;
         float distanceToHero = Vector3.Distance(rayOrigin, targetPosition);
@@ -299,7 +322,11 @@ public class ScoutAI : MonoBehaviour
         RaycastHit hit;
         if (Physics.Linecast(rayOrigin, targetPosition, out hit, obstacleLayerMask))
         {
-            return false;
+            // Check if the hit was the hero itself (e.g. if hero's layer is part of obstacleLayerMask for some reason)
+            if (hit.transform != heroGO.transform)
+            {
+                return false;
+            }
         }
         
         return true; 
@@ -322,7 +349,6 @@ public class ScoutAI : MonoBehaviour
         {
              transform.rotation = Quaternion.LookRotation(direction);
         }
-
 
         Vector3 currentPosition = transform.position;
         currentPosition.y = groundLevelY;
@@ -366,51 +392,100 @@ public class ScoutAI : MonoBehaviour
         else if (isWandering && !isActivelyChasing) 
         {
             Gizmos.color = Color.green;
-            if(currentWaypoint != null) Gizmos.DrawLine(transform.position, currentWaypoint);
+            if(currentWaypoint != null && currentWaypoint != Vector3.zero) Gizmos.DrawLine(transform.position, currentWaypoint);
         }
-        else if (heroTransformInternal != null && heroController != null)
+    // Gizmos for current target hero
+        if (focusedHeroTransform != null)
         {
-            if (heroController.isCloaked)
+            bool isStealthedGizmo = false;
+            bool isHiddenGizmo = false;
+            if (focusedGoblinHeroController != null)
             {
-                Gizmos.color = Color.blue; // Cloaked hero, special Gizmo color
-                // Optionally, only draw if scout would otherwise see the hero
-                // For simplicity, just draw blue line to cloaked hero if scout is trying to "see"
-                 if(Vector3.Distance(eyePosition.position, heroTransformInternal.position) <= visionDistance &&
-                    Vector3.Angle(eyePosition.forward, (heroTransformInternal.position - eyePosition.position).normalized) <= visionAngle / 2)
-                 {
-                    Gizmos.DrawLine(transform.position, heroTransformInternal.position);
-                 }
+                isStealthedGizmo = focusedGoblinHeroController.isCloaked;
+                isHiddenGizmo = focusedGoblinHeroController.IsHidden;
             }
-            else if (!heroController.IsHidden) // Hero is not hidden (and not cloaked)
+            else if (focusedHeroController != null)
+            {
+                AlchemistController ac = focusedHeroController as AlchemistController;
+                if (ac != null) isHiddenGizmo = ac.IsHidden;
+                else
+                {
+                    WitchController wc = focusedHeroController as WitchController;
+                    if (wc != null) isHiddenGizmo = wc.IsHidden;
+                }
+            }
+
+            if (isStealthedGizmo) Gizmos.color = Color.blue; 
+            else if (!isHiddenGizmo)
             {
                 if(isActivelyChasing) Gizmos.color = Color.red; 
-                else if (heroSpottedTime > 0) Gizmos.color = new Color(1f, 0.5f, 0f); // Orange if spotted but not fully detected
-                else Gizmos.color = Color.yellow; // Default vision color if just in LoS but not yet "spotted"
-                Gizmos.DrawLine(transform.position, heroTransformInternal.position);
+                else if (heroSpottedTime > 0) Gizmos.color = new Color(1f, 0.5f, 0f); 
+                else Gizmos.color = Color.yellow; 
             }
-            // If heroController.IsHidden is true (and not cloaked), no line is drawn by this section
+             if(Vector3.Distance(eyePosition.position, focusedHeroTransform.position) <= visionDistance &&
+                Vector3.Angle(eyePosition.forward, (focusedHeroTransform.position - eyePosition.position).normalized) <= visionAngle / 2)
+             {
+                if (!isHiddenGizmo || isStealthedGizmo) // Draw if not hidden, or if cloaked (blue)
+                    Gizmos.DrawLine(transform.position, focusedHeroTransform.position);
+             }
         }
+    }
+
+    void ResetFocus()
+    {
+        // If we were focusing on a hero, ensure their detection state is reset if appropriate
+        if (focusedHeroController != null && focusedHeroController.isBeingActivelyDetected)
+        {
+            focusedHeroController.isBeingActivelyDetected = false;
+            // detectionLevel will decay naturally on the hero's script
+        }
+
+        focusedHeroTransform = null;
+        focusedHeroController = null;
+        focusedHeroHealth = null;
+        focusedGoblinHeroController = null;
+        heroSpottedTime = 0f;
+        isActivelyChasing = false; // Stop chasing if focus is lost
     }
 
     public void ReceiveAlert(Vector3 sourcePosition, Vector3 heroLastKnownPosition)
     {
-        // Only respond if wandering and not already chasing, investigating, or seeing the hero directly
-        if (isWandering && !isActivelyChasing && !investigatingNoise && !CheckVision())
+        if (isWandering && !isActivelyChasing && !investigatingNoise)
         {
-            // Check if the source of the alert is different enough or if this scout is already near the heroLastKnownPosition
-            // This check helps prevent a scout from immediately re-alerting if it was the source or already heading there.
-            if (Vector3.Distance(transform.position, heroLastKnownPosition) > 1.0f) // Avoid investigating if already at the spot
+            // Check if currently seeing any hero. If so, might ignore alert or prioritize direct sight.
+            bool currentlySeeingAHero = false;
+            GameObject[] allHeroes = GameObject.FindGameObjectsWithTag("HeroPlayer");
+            foreach(GameObject hero in allHeroes)
+            {
+                if(CheckVision(hero))
+                {
+                    currentlySeeingAHero = true;
+                    break;
+                }
+            }
+            if(currentlySeeingAHero)
+            {
+                 Debug.Log(gameObject.name + " received alert but is currently seeing a hero. Prioritizing direct sight.");
+                 return;
+            }
+
+            if (Vector3.Distance(transform.position, heroLastKnownPosition) > 1.0f) 
             {
                 Debug.Log(gameObject.name + " received alert from " + sourcePosition + ". Investigating hero at " + heroLastKnownPosition);
                 investigationTarget = heroLastKnownPosition;
-                investigatingNoise = true; // Re-use investigatingNoise state for simplicity
+                investigatingNoise = true; 
                 isWandering = false;
-                // Do not reset heroSpottedTime here, as this is an indirect alert
+                ResetFocus(); // Clear any previous hero focus when investigating an alert
             }
         }
         else
         {
-            Debug.Log(gameObject.name + " received alert but is already busy (chasing: " + isActivelyChasing + ", investigating: " + investigatingNoise + ", canSeeHero: " + CheckVision() + ")");
+            // Log why the alert is being ignored, more specifically.
+            string reason = "";
+            if(isActivelyChasing) reason = "actively chasing";
+            else if(investigatingNoise) reason = "investigating noise";
+            else reason = "not wandering or has other priority";
+            Debug.Log(gameObject.name + " received alert but is already busy (" + reason + ")");
         }
     }
 

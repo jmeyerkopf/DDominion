@@ -11,11 +11,26 @@ public class Health : MonoBehaviour
 
     private float currentDamageReduction = 0f;
     private HeroControllerBase heroBase; // Reference to the hero base script
+    private DarkLordController darkLordController; // Reference for minion death notification
 
     void Start()
     {
         currentHealth = maxHealth;
         heroBase = GetComponent<HeroControllerBase>(); // Get the component
+
+        // Find DarkLordController if this is a minion
+        if (gameObject.CompareTag("Scout") || gameObject.CompareTag("Tank") || gameObject.CompareTag("Priest"))
+        {
+            GameObject dlObject = GameObject.FindGameObjectWithTag("DarkLord");
+            if (dlObject != null)
+            {
+                darkLordController = dlObject.GetComponent<DarkLordController>();
+            }
+            else
+            {
+                Debug.LogWarning("Health.cs on " + gameObject.name + ": Could not find DarkLordController with tag 'DarkLord'. Minion death will not be reported.");
+            }
+        }
     }
 
     public void SetDamageReduction(float reductionPercent)
@@ -49,22 +64,24 @@ public class Health : MonoBehaviour
             heroBase.SetDefeated();
         }
 
-        // Gold drop logic specifically for "Scout"
-        if (gameObject.CompareTag("Scout"))
+        // Gold drop logic for minions ("Scout", "Tank", "Priest")
+        if (gameObject.CompareTag("Scout") || gameObject.CompareTag("Tank") || gameObject.CompareTag("Priest"))
         {
             if (goldNuggetPrefab != null)
             {
+                // For simplicity, all minions drop 'goldDropAmount', which defaults to 1.
+                // This could be customized further if different minions should drop different amounts.
                 for (int i = 0; i < goldDropAmount; i++)
                 {
-                    // Instantiate slightly above the scout's position with a small random offset
+                    // Instantiate slightly above the minion's position with a small random offset
                     Vector3 dropPosition = transform.position + Vector3.up * 0.5f + Random.insideUnitSphere * 0.1f;
                     Instantiate(goldNuggetPrefab, dropPosition, Quaternion.identity);
                 }
-                Debug.Log(gameObject.name + " dropped " + goldDropAmount + " gold nugget(s).");
+                Debug.Log(gameObject.name + " (Tag: " + gameObject.tag + ") dropped " + goldDropAmount + " gold nugget(s).");
             }
             else
             {
-                Debug.LogWarning("Health.Die: goldNuggetPrefab is not assigned on " + gameObject.name);
+                Debug.LogWarning("Health.Die: goldNuggetPrefab is not assigned on " + gameObject.name + " (Tag: " + gameObject.tag + ")");
             }
         }
         
@@ -72,6 +89,12 @@ public class Health : MonoBehaviour
         
         // The "GAME OVER - Hero Defeated" log is now effectively handled by GameManager
         // if (gameObject.CompareTag("Hero")) { Debug.Log("GAME OVER - Hero Defeated"); } 
+
+        // Notify DarkLordController if a minion died
+        if (darkLordController != null && (gameObject.CompareTag("Scout") || gameObject.CompareTag("Tank") || gameObject.CompareTag("Priest")))
+        {
+            darkLordController.MinionDied();
+        }
     }
 
     public float GetCurrentHealth()

@@ -13,15 +13,19 @@ public class TankAI : MonoBehaviour
     private Vector3 wanderTarget;
     private float wanderRadius = 5f; 
     private float waypointReachedThreshold = 0.5f;
-    private Health heroHealth; 
-    private HeroController heroController; 
+    // Removed single hero references: heroHealth, heroControllerBase, goblinHeroController, heroTransformInternal
     private float groundLevelY;
-    private Transform heroTransformInternal;
+
+    // Current target variables
+    private Transform currentTargetTransform;
+    private Health currentTargetHealth;
+    private HeroControllerBase currentTargetHeroController;
+    private GoblinOutlawController currentTargetGoblinController; // For specific checks
 
     // Detection & Engagement
-    private float heroSpottedTime = 0f;
-    public float timeToActuallyDetectHero = 2.0f; // Time hero must be continuously "visible" to be detected
-    private bool isActivelyEngaging = false; // True when detected and moving to attack
+    private float heroSpottedTime = 0f; // Applies to currentTargetTransform
+    public float timeToActuallyDetectHero = 2.0f; 
+    private bool isActivelyEngaging = false; 
 
     // Noise Investigation
     private Vector3 investigationTarget = Vector3.zero;
@@ -35,22 +39,7 @@ public class TankAI : MonoBehaviour
     void Start()
     {
         groundLevelY = transform.position.y; 
-
-        GameObject heroObject = GameObject.FindGameObjectWithTag("Hero");
-        if (heroObject != null)
-        {
-            heroTransformInternal = heroObject.transform;
-            heroHealth = heroObject.GetComponent<Health>();
-            heroController = heroObject.GetComponent<HeroController>();
-
-            if (heroHealth == null) Debug.LogError("TankAI: Hero Health component not found!");
-            if (heroController == null) Debug.LogError("TankAI: HeroController component not found on Hero!");
-        }
-        else
-        {
-            Debug.LogError("TankAI: Hero GameObject not found! Tank AI will not function correctly.");
-        }
-        
+        // Hero target acquisition removed from Start()
         SetNewWanderTarget();
     }
 
@@ -70,95 +59,136 @@ public class TankAI : MonoBehaviour
             {
                 isStunned = false;
                 Debug.Log(gameObject.name + " is no longer stunned.");
+                ResetCurrentTarget(); // Clear target on stun recovery
             }
             return; 
         }
 
-        if (heroController == null || heroTransformInternal == null || !heroTransformInternal.gameObject.activeInHierarchy)
+        if (attackTimer > 0) attackTimer -= Time.deltaTime;
+
+        GameObject[] heroObjects = GameObject.FindGameObjectsWithTag("HeroPlayer");
+        GameObject bestHeroToEngage = null;
+        float closestHeroDistSqr = detectionRadius * detectionRadius + 1.0f; // Start beyond detection radius
+
+        foreach (GameObject heroGO in heroObjects)
         {
-            if (!investigatingNoise) MoveToWanderPoint(); 
-            else if(investigatingNoise) 
+            if (!heroGO.activeInHierarchy) continue;
+
+            Health CHealth = heroGO.GetComponent<Health>();
+            if (CHealth == null || CHealth.GetCurrentHealth() <= 0) continue;
+
+            HeroControllerBase CHeroController = heroGO.GetComponent<HeroControllerBase>();
+            if (CHeroController == null) continue;
+            
+            bool isStealthed = false;
+            GoblinOutlawController CGoblinController = heroGO.GetComponent<GoblinOutlawController>();
+            if (CGoblinController != null)
             {
-                investigatingNoise = false; // Stop investigating if hero disappears
-                SetNewWanderTarget();
+                isStealthed = CGoblinController.isCloaked || CGoblinController.IsHidden;
             }
-            return;
-        }
-
-        if (attackTimer > 0)
-        {
-            attackTimer -= Time.deltaTime;
-        }
-
-        bool isHeroPotentiallyVisible = false;
-        if (heroHealth.GetCurrentHealth() > 0 && 
-            !heroController.IsHidden && 
-            !heroController.isCloaked &&
-            Vector3.Distance(transform.position, heroTransformInternal.position) <= detectionRadius)
-        {
-            isHeroPotentiallyVisible = true;
-        }
-
-        if (isHeroPotentiallyVisible)
-        {
-            // Priority 1: Check if hero is interacting with a village (if visible)
-            if (heroController.isInteractingWithVillage && 
-                heroController.currentInteractingVillage != null && 
-                heroController.currentVillageInteractionTime > 1.0f &&
-                !isActivelyEngaging) // Don't override active engagement for this, but can start investigating
+            else
             {
-                Debug.Log(gameObject.name + " (Tank) saw hero interacting with " + heroController.currentInteractingVillage.name + " for " + heroController.currentVillageInteractionTime + "s. Investigating village.");
-                investigationTarget = heroController.currentInteractingVillage.transform.position;
-                investigatingNoise = true; // Re-use state to move towards the village
-                isActivelyEngaging = false; // Not engaging hero directly, but investigating village
-                heroSpottedTime = 0f; // Reset direct hero spotting time as focus is now village
-                // This path makes the tank go to the village.
+                AlchemistController ac = CHeroController as AlchemistController;
+                if (ac != null) isStealthed = ac.IsHidden;
+                else
+                {
+                    WitchController wc = CHeroController as WitchController;
+                    if (wc != null) isStealthed = wc.IsHidden;
+                }
             }
-            // Priority 2: Normal detection and engagement logic if not investigating village
-            else if (!investigatingNoise) // if investigatingNoise is true from above, skip this else if.
+
+            if (isStealthed) continue;
+
+            float distSqr = (heroGO.transform.position - transform.position).sqrMagnitude;
+            if (distSqr <= detectionRadius * detectionRadius)
+            {
+                if (distSqr < closestHeroDistSqr) // Prioritize closest
+                {
+                    closestHeroDistSqr = distSqr;
+                    bestHeroToEngage = heroGO;
+                }
+            }
+        }
+
+        // Update current target if a new best target is found or if current target is lost
+        if (bestHeroToEngage != null)
+        {
+            if (currentTargetTransform == null || currentTargetTransform != bestHeroToEngage.transform)
+            {
+                Debug.Log(gameObject.name + " (Tank) new focus: " + bestHeroToEngage.name);
+                currentTargetTransform = bestHeroToEngage.transform;
+                currentTargetHealth = bestHeroToEngage.GetComponent<Health>();
+                currentTargetHeroController = bestHeroToEngage.GetComponent<HeroControllerBase>();
+                currentTargetGoblinController = bestHeroToEngage.GetComponent<GoblinOutlawController>();
+                heroSpottedTime = 0f; // Reset spotted time for new target
+                isActivelyEngaging = false; // Not yet engaging, need to pass timeToActuallyDetectHero
+            }
+        }
+        else // No hero is currently a valid target (none in range or all stealthed)
+        {
+            if (currentTargetTransform != null) // If Tank was targeting someone
+            {
+                 Debug.Log(gameObject.name + " (Tank) lost target: " + currentTargetTransform.name);
+                 ResetCurrentTarget();
+            }
+        }
+
+
+        if (currentTargetTransform != null) // If we have a focused target
+        {
+            // Village interaction check (specific to Goblin for now)
+            bool isGoblinInteractingWithVillage = false;
+            GameObject currentVillageForGoblin = null;
+            float goblinVillageInteractionTime = 0f;
+
+            if (currentTargetGoblinController != null)
+            {
+                isGoblinInteractingWithVillage = currentTargetGoblinController.isInteractingWithVillage;
+                currentVillageForGoblin = currentTargetGoblinController.currentInteractingVillage;
+                goblinVillageInteractionTime = currentTargetGoblinController.currentVillageInteractionTime;
+            }
+
+            if (isGoblinInteractingWithVillage && currentVillageForGoblin != null && goblinVillageInteractionTime > 1.0f && !isActivelyEngaging)
+            {
+                Debug.Log(gameObject.name + " (Tank) saw focused hero " + currentTargetTransform.name + " interacting with village. Investigating village.");
+                investigationTarget = currentVillageForGoblin.transform.position;
+                investigatingNoise = true; 
+                isActivelyEngaging = false; 
+                // Keep heroSpottedTime for the hero, this is about village
+            }
+            else if (!investigatingNoise) 
             {
                 heroSpottedTime += Time.deltaTime;
-
                 if (heroSpottedTime >= timeToActuallyDetectHero)
                 {
                     isActivelyEngaging = true;
-                    investigatingNoise = false; // Full detection overrides other investigations
+                    investigatingNoise = false;
 
-                    Vector3 directionToHero = (heroTransformInternal.position - transform.position).normalized;
-                directionToHero.y = 0;
-                transform.Translate(directionToHero * moveSpeed * Time.deltaTime, Space.World);
-                transform.LookAt(new Vector3(heroTransformInternal.position.x, transform.position.y, heroTransformInternal.position.z));
+                    Vector3 directionToHero = (currentTargetTransform.position - transform.position).normalized;
+                    directionToHero.y = 0;
+                    transform.Translate(directionToHero * moveSpeed * Time.deltaTime, Space.World);
+                    transform.LookAt(new Vector3(currentTargetTransform.position.x, transform.position.y, currentTargetTransform.position.z));
 
-                if (Vector3.Distance(transform.position, heroTransformInternal.position) <= attackRange && attackTimer <= 0)
-                {
-                    heroHealth.TakeDamage(attackDamage);
-                    attackTimer = attackCooldown;
+                    if (Vector3.Distance(transform.position, currentTargetTransform.position) <= attackRange && attackTimer <= 0)
+                    {
+                        currentTargetHealth.TakeDamage(attackDamage);
+                        attackTimer = attackCooldown;
+                    }
                 }
-            }
-            else
-                else
+                else // Not detected long enough
                 {
-                    // Hero is "seen" (within radius, not hidden/cloaked) but not yet "detected" for full engagement
                     isActivelyEngaging = false;
-                    // Optionally, make the Tank look at the hero
-                    Vector3 directionToHero = (heroTransformInternal.position - transform.position).normalized;
+                    Vector3 directionToHero = (currentTargetTransform.position - transform.position).normalized;
                     directionToHero.y = 0;
                     if (directionToHero != Vector3.zero) transform.rotation = Quaternion.LookRotation(directionToHero);
-                    // Don't reset investigatingNoise here if it was set due to village interaction.
                 }
             }
         }
-        else // Hero is not potentially visible (out of range, hidden, or cloaked)
+        else // No current target (no hero visible or in range)
         {
-            heroSpottedTime = 0f; // Reset direct hero spotting time
-            // If was actively engaging but lost sight, stop engaging.
-            // Keep investigatingNoise if it was set for village or alert.
-            if (isActivelyEngaging) 
-            {
-                 isActivelyEngaging = false;
-            }
+             isActivelyEngaging = false; // Ensure not stuck in engaging state
+             heroSpottedTime = 0f;
 
-            // Noise investigation or wandering (only if not already investigating something e.g. a village)
             if (!investigatingNoise)
             {
                 Vector3 noisePos;
@@ -226,33 +256,51 @@ public class TankAI : MonoBehaviour
             Gizmos.DrawLine(transform.position, investigationTarget);
             Gizmos.DrawWireSphere(investigationTarget, 0.5f);
         }
-        else if (heroTransformInternal != null && heroController != null)
+        else if (currentTargetTransform != null && currentTargetHeroController != null)
         {
-            bool isHeroPotentiallyVisibleCheck = !heroController.IsHidden && !heroController.isCloaked &&
-                                             Vector3.Distance(transform.position, heroTransformInternal.position) <= detectionRadius;
-
-            if (heroController.isCloaked && Vector3.Distance(transform.position, heroTransformInternal.position) <= detectionRadius)
+            bool isStealthedGizmo = false;
+            bool isHiddenGizmo = false;
+            if (currentTargetGoblinController != null)
             {
-                Gizmos.color = new Color(0.5f, 0f, 1f); // Purple for cloaked hero in range
-                Gizmos.DrawLine(transform.position, heroTransformInternal.position);
+                isStealthedGizmo = currentTargetGoblinController.isCloaked;
+                isHiddenGizmo = currentTargetGoblinController.IsHidden;
+            }
+            else
+            {
+                AlchemistController acGizmo = currentTargetHeroController as AlchemistController;
+                if (acGizmo != null) isHiddenGizmo = acGizmo.IsHidden;
+                else
+                {
+                    WitchController wcGizmo = currentTargetHeroController as WitchController;
+                    if (wcGizmo != null) isHiddenGizmo = wcGizmo.IsHidden;
+                }
+            }
+            
+            bool isHeroActuallyVisibleGizmo = !isStealthedGizmo && !isHiddenGizmo &&
+                                           Vector3.Distance(transform.position, currentTargetTransform.position) <= detectionRadius;
+
+            if (isStealthedGizmo && Vector3.Distance(transform.position, currentTargetTransform.position) <= detectionRadius)
+            {
+                Gizmos.color = new Color(0.5f, 0f, 1f); 
+                Gizmos.DrawLine(transform.position, currentTargetTransform.position);
             }
             else if (isActivelyEngaging)
             {
-                Gizmos.color = Color.magenta; // Actively engaging
-                Gizmos.DrawLine(transform.position, heroTransformInternal.position);
+                Gizmos.color = Color.magenta; 
+                Gizmos.DrawLine(transform.position, currentTargetTransform.position);
             }
-            else if (isHeroPotentiallyVisibleCheck && heroSpottedTime > 0)
+            else if (isHeroActuallyVisibleGizmo && heroSpottedTime > 0)
             {
-                Gizmos.color = Color.yellow; // Spotted but not yet engaging
-                Gizmos.DrawLine(transform.position, heroTransformInternal.position);
+                Gizmos.color = Color.yellow; 
+                Gizmos.DrawLine(transform.position, currentTargetTransform.position);
             }
-            else if (!isActivelyEngaging) // Default wander line
+            else if (!isActivelyEngaging) 
             {
                 Gizmos.color = Color.green;
                 if(wanderTarget != null && wanderTarget != Vector3.zero) Gizmos.DrawLine(transform.position, wanderTarget);
             }
         }
-        else // Fallback if no heroController or heroTransformInternal
+        else
         {
             Gizmos.color = Color.green; 
             if(wanderTarget != null && wanderTarget != Vector3.zero) Gizmos.DrawLine(transform.position, wanderTarget);
@@ -261,26 +309,57 @@ public class TankAI : MonoBehaviour
 
     public void ReceiveAlert(Vector3 sourcePosition, Vector3 heroLastKnownPosition)
     {
-        // Only respond if not already actively engaging or investigating a different noise/alert.
-        // Also, ensure heroController and heroTransformInternal are not null.
-        if (heroController == null || heroTransformInternal == null) return;
-
         if (!isActivelyEngaging && !investigatingNoise)
         {
-            // Avoid investigating if already very close to the target position of the alert.
+             // Check if currently seeing any hero. If so, might ignore alert.
+            bool currentlySeeingAHero = false;
+            GameObject[] allHeroes = GameObject.FindGameObjectsWithTag("HeroPlayer");
+            foreach(GameObject hero in allHeroes)
+            {
+                if(hero.activeInHierarchy) 
+                {
+                    // Basic distance check as a proxy for visibility before full CheckVision
+                    if(Vector3.Distance(transform.position, hero.transform.position) <= detectionRadius)
+                    {
+                         // A more robust check would involve calling a simplified visibility check here
+                         // For now, assume if a hero is close, Tank might be "aware"
+                        currentlySeeingAHero = true;
+                        break;
+                    }
+                }
+            }
+            if(currentlySeeingAHero && currentTargetTransform != null) // If already focused or seeing someone
+            {
+                 Debug.Log(gameObject.name + " (Tank) received alert but is currently aware of a hero. Prioritizing direct awareness.");
+                 return;
+            }
+
             if (Vector3.Distance(transform.position, heroLastKnownPosition) > 1.0f)
             {
                 Debug.Log(gameObject.name + " (Tank) received alert from " + sourcePosition + ". Investigating hero at " + heroLastKnownPosition);
                 investigationTarget = heroLastKnownPosition;
-                investigatingNoise = true; // Use existing state for simplicity
-                // isActivelyEngaging will remain false until direct detection conditions are met
-                // heroSpottedTime is not reset here, as this is an indirect alert.
+                investigatingNoise = true; 
+                ResetCurrentTarget(); // Clear current hero focus when investigating an alert
             }
         }
         else
         {
             Debug.Log(gameObject.name + " (Tank) received alert but is already busy (engaging: " + isActivelyEngaging + ", investigating: " + investigatingNoise + ")");
         }
+    }
+    
+    void ResetCurrentTarget()
+    {
+        if (currentTargetHeroController != null && currentTargetHeroController.isBeingActivelyDetected)
+        {
+            currentTargetHeroController.isBeingActivelyDetected = false;
+        }
+        currentTargetTransform = null;
+        currentTargetHealth = null;
+        currentTargetHeroController = null;
+        currentTargetGoblinController = null;
+        heroSpottedTime = 0f;
+        isActivelyEngaging = false;
     }
 
     public void ApplyStun(float duration)
@@ -289,8 +368,7 @@ public class TankAI : MonoBehaviour
         isStunned = true;
         stunTimer = duration;
         Debug.Log(gameObject.name + " is STUNNED for " + duration + " seconds!");
-        // Reset other states that might be interrupted by stun
-        isActivelyEngaging = false;
+        ResetCurrentTarget(); // Clear target on stun
         investigatingNoise = false;
     }
 }

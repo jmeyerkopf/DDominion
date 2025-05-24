@@ -30,9 +30,10 @@ public class PriestAI : MonoBehaviour
     public float revealCooldown = 15.0f;
     private float revealTimer = 0f;
     public LayerMask obstacleLayerMask; 
-    // Store the generic MonoBehaviour for the hero, and attempt to get specific controllers when needed.
-    private MonoBehaviour heroScriptInstance = null; 
-    private Transform heroTransformInternal = null; 
+    // Removed heroScriptInstance and heroTransformInternal as persistent single target fields.
+    // heroSpottedForRevealTimer will also need to be managed differently if tracking multiple heroes for reveal.
+    // For now, it will act as a general timer for the first hero that meets spotting criteria.
+    // A more advanced system would use a Dictionary<GameObject, float> for individual spotting timers.
 
     // Stun state
     private bool isStunned = false;
@@ -44,28 +45,7 @@ public class PriestAI : MonoBehaviour
         ChooseNewWaypoint();
         revealTimer = 0f; // Ensure ready at start, or set to cooldown if preferred
         heroSpottedForRevealTimer = 0f;
-
-        // Attempt to find Hero at start for efficiency
-        GameObject heroObject = GameObject.FindGameObjectWithTag("Hero");
-        if (heroObject != null)
-        {
-            heroTransformInternal = heroObject.transform;
-            // Try to get KnightController first, then HeroController as a fallback for heroScriptInstance
-            heroScriptInstance = heroObject.GetComponent<KnightController>();
-            if (heroScriptInstance == null)
-            {
-                heroScriptInstance = heroObject.GetComponent<HeroController>();
-            }
-
-            if (heroScriptInstance == null)
-            {
-                Debug.LogError(gameObject.name + ": Hero GameObject does not have a KnightController or HeroController component!");
-            }
-        }
-        else
-        {
-            Debug.LogWarning(gameObject.name + ": Could not find GameObject with tag 'Hero' at Start. Reveal ability might be delayed.");
-        }
+        // Hero acquisition removed from Start(). Will be done in PerformRevealLogic.
     }
 
     void Update()
@@ -99,77 +79,91 @@ public class PriestAI : MonoBehaviour
     {
         if (revealTimer > 0) return; // Ability on cooldown
 
-        if (heroScriptInstance == null || heroTransformInternal == null)
+        GameObject[] heroObjects = GameObject.FindGameObjectsWithTag("HeroPlayer");
+        bool revealedThisCycle = false; // To ensure we only reveal one hero per cooldown cycle
+
+        foreach (GameObject heroGO in heroObjects)
         {
-            GameObject heroObject = GameObject.FindGameObjectWithTag("Hero");
-            if (heroObject != null)
+            if (revealedThisCycle) break; // Cooldown started, wait for next opportunity
+            if (heroGO == null || !heroGO.activeInHierarchy) continue;
+
+            HeroControllerBase heroBase = heroGO.GetComponent<HeroControllerBase>();
+            if (heroBase == null) continue;
+
+            float distanceToHero = Vector3.Distance(transform.position, heroGO.transform.position);
+
+            if (distanceToHero <= revealRange)
             {
-                heroTransformInternal = heroObject.transform;
-                heroScriptInstance = heroObject.GetComponent<KnightController>();
-                if (heroScriptInstance == null)
+                Vector3 directionToHero = (heroGO.transform.position - transform.position).normalized;
+                float angleToHero = Vector3.Angle(transform.forward, directionToHero);
+
+                if (angleToHero <= revealAngle / 2)
                 {
-                    heroScriptInstance = heroObject.GetComponent<HeroController>();
-                }
-                if (heroScriptInstance == null) return; // No valid hero script
-            }
-            else return; // No hero object
-        }
-        
-        if (!heroScriptInstance.gameObject.activeInHierarchy)
-        {
-            heroSpottedForRevealTimer = 0f; 
-            return;
-        }
+                    RaycastHit hit;
+                    Vector3 rayOrigin = transform.position + Vector3.up * 0.5f; 
+                    Vector3 targetPosition = heroGO.transform.position + Vector3.up * 0.5f;
 
-        float distanceToHero = Vector3.Distance(transform.position, heroTransformInternal.position);
-
-        if (distanceToHero <= revealRange)
-        {
-            Vector3 directionToHero = (heroTransformInternal.position - transform.position).normalized;
-            float angleToHero = Vector3.Angle(transform.forward, directionToHero);
-
-            if (angleToHero <= revealAngle / 2)
-            {
-                RaycastHit hit;
-                Vector3 rayOrigin = transform.position + Vector3.up * 0.5f; 
-                Vector3 targetPosition = heroTransformInternal.position + Vector3.up * 0.5f;
-
-                if (!Physics.Linecast(rayOrigin, targetPosition, out hit, obstacleLayerMask)) // No obstacle
-                {
-                    bool heroIsStealthed = false;
-                    HeroController hc = heroScriptInstance as HeroController; // Try to cast to HeroController (Goblin)
-                    if (hc != null)
+                    if (!Physics.Linecast(rayOrigin, targetPosition, out hit, obstacleLayerMask) || hit.transform == heroGO.transform)
                     {
-                        heroIsStealthed = hc.IsHidden || hc.isCloaked;
-                    }
-                    // If hc is null, it's a Knight (or other non-HeroController hero), heroIsStealthed remains false.
-
-                    if (heroIsStealthed)
-                    {
-                        heroSpottedForRevealTimer += Time.deltaTime;
-                        if (heroSpottedForRevealTimer >= timeToSpotForReveal)
+                        bool heroIsStealthedOrHidden = false;
+                        GoblinOutlawController goc = heroBase as GoblinOutlawController;
+                        if (goc != null) heroIsStealthedOrHidden = goc.IsHidden; // Assumes GoblinOutlawController.IsHidden covers cloak too
+                        else
                         {
-                            // Call ApplyRevealEffect on the specific type
-                            if (hc != null) hc.ApplyRevealEffect(revealEffectDuration);
-                            else 
+                            AlchemistController ac = heroBase as AlchemistController;
+                            if (ac != null) heroIsStealthedOrHidden = ac.IsHidden;
+                            else
                             {
-                                KnightController kc = heroScriptInstance as KnightController;
-                                if (kc != null) kc.ApplyRevealEffect(revealEffectDuration);
+                                WitchController wc = heroBase as WitchController;
+                                if (wc != null) heroIsStealthedOrHidden = wc.IsHidden;
                             }
-                            Debug.Log(gameObject.name + " revealed " + heroScriptInstance.name + "!");
-                            revealTimer = revealCooldown;
+                        }
+
+                        if (heroIsStealthedOrHidden)
+                        {
+                            // Simplified: If a hero is spotted meeting criteria, reveal immediately.
+                            // The heroSpottedForRevealTimer would ideally be per-hero.
+                            // For now, this means any stealthed hero in LoS for one frame can trigger the timer.
+                            // If multiple are, the first one processed this frame that is stealthed will be the focus of the timer.
+                            // This is a simplification; a dictionary for timers is more robust.
+                            
+                            // Let's assume for now, if a stealthed hero is in LoS, we increment a general timer.
+                            // If that timer passes, we reveal THE CURRENT heroGO in iteration that is stealthed.
+                            // This isn't perfect if attention switches rapidly, but is a step.
+                            
+                            // For this pass, let's make it simpler: if a stealthed hero is seen, and the general timer is ready, reveal.
+                            // This means 'heroSpottedForRevealTimer' is not tied to a *specific* hero being continuously watched.
+                            heroSpottedForRevealTimer += Time.deltaTime; 
+                            if (heroSpottedForRevealTimer >= timeToSpotForReveal)
+                            {
+                                heroBase.ApplyRevealEffect(revealEffectDuration);
+                                Debug.Log(gameObject.name + " revealed " + heroGO.name + " (Type: " + heroBase.GetType().Name + ")!");
+                                revealTimer = revealCooldown;
+                                heroSpottedForRevealTimer = 0f; // Reset timer after a successful reveal
+                                revealedThisCycle = true; // Break outer loop after reveal
+                            }
+                            // If we revealed, we should break from checking other heroes this cycle.
+                            if(revealedThisCycle) break; 
+                        }
+                        else
+                        {
+                            // If the current hero in LoS is NOT stealthed, reset the general spotting timer.
+                            // This prevents revealing a stealthed hero if a non-stealthed one walks into view
+                            // and resets the "concentration".
                             heroSpottedForRevealTimer = 0f;
                         }
                     }
-                    else
-                    {
-                        heroSpottedForRevealTimer = 0f; 
-                    }
-                    return; 
+                    else { heroSpottedForRevealTimer = 0f; } // Obstacle, reset timer
                 }
+                else { heroSpottedForRevealTimer = 0f; } // Not in angle, reset timer
             }
+            else { heroSpottedForRevealTimer = 0f; } // Out of range, reset timer for this hero (or general timer if not seeing anyone)
         }
-        heroSpottedForRevealTimer = 0f;
+        // If loop finishes and no hero was stealthed/visible to keep timer going, reset it.
+        if (!revealedThisCycle && heroObjects.Length == 0) // Or if no heroes were found at all
+        {
+            heroSpottedForRevealTimer = 0f;
+        }
     }
 
     void PerformHealingLogic()

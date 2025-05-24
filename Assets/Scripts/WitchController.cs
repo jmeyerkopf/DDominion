@@ -1,20 +1,20 @@
 using UnityEngine;
 using System.Collections.Generic; // Required for Dictionary
 
-public class WitchController : MonoBehaviour
+public class WitchController : HeroControllerBase // Inherit from HeroControllerBase
 {
     // Witch Stats
-    public float moveSpeed = 3.0f;
+    public float moveSpeed = 3.0f; // isDefeated is now in HeroControllerBase
     public bool IsHidden { get; private set; } 
     public float timeToHide = 3.0f; 
     public string heroSpawnMarkerName = "HeroSpawnPointMarkerGO"; 
 
     private float hideTimer = 0f;
-    private Renderer heroRenderer;
+    private Renderer heroRenderer; // Renamed from witchRenderer to heroRenderer for consistency
     private Color originalColor;
     private Color stealthColor; 
     private float groundLevelY;
-    private Health selfHealthComponent; 
+    // private Health selfHealthComponent; // Health component is managed by HeroControllerBase or an attached Health script
 
     // Attack properties (placeholder, will be for spells)
     public float attackDamage = 7.0f; 
@@ -39,12 +39,12 @@ public class WitchController : MonoBehaviour
     [HideInInspector] 
     public bool isBeingActivelyDetected = false; 
 
-    // Reveal Effect (standard)
+    // Reveal Effect (standard) - Fields already present, ensure they are used by new methods
     private bool isRevealed = false;
     private float revealEffectTimer = 0f;
     public Color revealedColor = Color.yellow; 
 
-    // Scry Effect (standard)
+    // Scry Effect (standard) - Fields already present, ensure they are used by new methods
     private bool isScryed = false;
     private float scryEffectTimer = 0f;
     public Color scryedColor = Color.cyan;
@@ -94,14 +94,14 @@ public class WitchController : MonoBehaviour
         }
         else
         {
-            Debug.LogError(gameObject.name + ": Renderer or Material not found on Witch GameObject!");
+            Debug.LogError(gameObject.name + " (WitchController): Renderer or Material not found on Witch GameObject!");
         }
 
-        selfHealthComponent = GetComponent<Health>();
-        if (selfHealthComponent == null)
-        {
-            Debug.LogError(gameObject.name + ": Health component not found for Witch!");
-        }
+        // selfHealthComponent = GetComponent<Health>(); // Health is handled by base or separate component
+        // if (selfHealthComponent == null)
+        // {
+        //     Debug.LogError(gameObject.name + ": Health component not found for Witch!");
+        // }
 
         groundLevelY = transform.position.y; 
         IsHidden = false; 
@@ -109,7 +109,7 @@ public class WitchController : MonoBehaviour
         characterController = GetComponent<CharacterController>();
         if (characterController == null)
         {
-            Debug.LogError(gameObject.name + ": CharacterController component not found! Adding one.");
+            Debug.LogError(gameObject.name + " (WitchController): CharacterController component not found! Adding one.");
             characterController = gameObject.AddComponent<CharacterController>();
             characterController.height = 2.0f;
             characterController.radius = 0.5f;
@@ -119,6 +119,8 @@ public class WitchController : MonoBehaviour
 
     void Update()
     {
+        if (isDefeated) return; // Stop updates if defeated
+
         // Timers
         if (attackTimer > 0) attackTimer -= Time.deltaTime;
         if (shadowBoltTimer > 0) shadowBoltTimer -= Time.deltaTime;
@@ -131,9 +133,9 @@ public class WitchController : MonoBehaviour
         if(isChanneling) HandleChannelingProgress(); 
         // HandleVillageInteractionState(); 
         HandleDetectionLevelDecay(); 
-        HandleRevealState(); 
-        HandleScryState(); 
-        UpdateVisuals(); 
+        HandleRevealState(); // Handles timer for reveal effect
+        HandleScryState();   // Handles timer for scry effect
+        UpdateVisuals(); // Updates color based on state (hidden, revealed, scryed)
     }
     
     void HandleDetectionLevelDecay()
@@ -427,9 +429,9 @@ public class WitchController : MonoBehaviour
         }
     }
 
-    public void ApplyRevealEffect(float duration)
+    public override void ApplyRevealEffect(float duration) // Added override
     {
-        Debug.Log(gameObject.name + " has been REVEALED for " + duration + " seconds!");
+        Debug.Log(gameObject.name + " (WitchController) has been REVEALED for " + duration + " seconds!");
         isRevealed = true;
         revealEffectTimer = duration;
         IsHidden = false; 
@@ -437,7 +439,7 @@ public class WitchController : MonoBehaviour
         UpdateVisuals(); 
     }
 
-    void HandleRevealState()
+    void HandleRevealState() // Existing method, ensures timer ticks down
     {
         if (isRevealed)
         {
@@ -446,21 +448,21 @@ public class WitchController : MonoBehaviour
             {
                 isRevealed = false;
                 revealEffectTimer = 0f;
-                Debug.Log(gameObject.name + " reveal effect wore off.");
+                Debug.Log(gameObject.name + " (WitchController) reveal effect wore off.");
                 UpdateVisuals(); 
             }
         }
     }
 
-    public void ApplyScryEffect(float duration)
+    public override void ApplyScryEffect(float duration) // Added override
     {
-        Debug.Log(gameObject.name + " is being SCRYED for " + duration + " seconds!");
+        Debug.Log(gameObject.name + " (WitchController) is being SCRYED for " + duration + " seconds!");
         isScryed = true;
         scryEffectTimer = duration;
         UpdateVisuals(); 
     }
 
-    void HandleScryState()
+    void HandleScryState() // Existing method, ensures timer ticks down
     {
         if (isScryed)
         {
@@ -469,14 +471,17 @@ public class WitchController : MonoBehaviour
             {
                 isScryed = false;
                 scryEffectTimer = 0f;
-                Debug.Log(gameObject.name + " scry effect wore off.");
+                Debug.Log(gameObject.name + " (WitchController) scry effect wore off.");
                 UpdateVisuals(); 
             }
         }
     }
 
-    public void ApplyKnockback(Vector3 force, float duration)
+    public override void ApplyKnockback(Vector3 force, float duration) // Added override
     {
+        if (isDefeated) return;
+        Debug.Log(gameObject.name + " (WitchController) received knockback.");
+
         if (duration <= 0) return;
         knockbackVelocity = force; 
         knockbackDuration = duration;
@@ -488,10 +493,41 @@ public class WitchController : MonoBehaviour
         if (isChanneling)
         {
             StopChanneling(false); // Interrupt channeling
-            Debug.Log(gameObject.name + " channeling interrupted by knockback!");
+            Debug.Log(gameObject.name + " (WitchController) channeling interrupted by knockback!");
+        }
+        
+        // If there's any cloak-like effect for the Witch, it should be handled here too.
+        // For now, just updating visuals.
+        UpdateVisuals(); 
+    }
+
+    public override void SetDefeated() // Added override
+    {
+        if (isDefeated) return; // Already defeated
+
+        base.isDefeated = true; // Set flag in base class
+        Debug.Log(gameObject.name + " (WitchController) SetDefeated called and has been defeated!");
+
+        if (isChanneling)
+        {
+            StopChanneling(false); // Stop channeling if defeated
         }
 
-        Debug.Log(gameObject.name + " is knocked back with velocity " + force + " for " + duration + "s!");
-        UpdateVisuals(); 
+        // Disable components
+        if (characterController != null)
+        {
+            characterController.enabled = false;
+        }
+        // Disable any other Witch-specific components that should stop on defeat (e.g., spell casting scripts if they were separate)
+        
+        this.enabled = false; // Disable this script
+
+        // Optional: Change appearance to indicate defeat
+        if (heroRenderer != null && heroRenderer.material != null)
+        {
+            heroRenderer.material.color = Color.gray; // Example: turn gray
+        }
+        // Optional: Instantiate a defeat effect prefab
+        // if (defeatEffectPrefab != null) Instantiate(defeatEffectPrefab, transform.position, Quaternion.identity);
     }
 }

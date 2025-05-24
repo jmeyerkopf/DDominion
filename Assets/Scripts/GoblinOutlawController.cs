@@ -1,7 +1,7 @@
 using UnityEngine;
 using System.Collections.Generic; // Required for Dictionary
 
-public class HeroController : HeroControllerBase // Inherit from HeroControllerBase
+public class GoblinOutlawController : HeroControllerBase // Inherit from HeroControllerBase
 {
     public float moveSpeed = 3.0f;
     public bool IsHidden { get; private set; } // isDefeated is now in HeroControllerBase
@@ -82,7 +82,7 @@ public class HeroController : HeroControllerBase // Inherit from HeroControllerB
         }
         else
         {
-            Debug.LogError(gameObject.name + ": Could not find hero spawn marker named '" + heroSpawnMarkerName + "'. Hero will not be repositioned.", this);
+            Debug.LogError(gameObject.name + ": Could not find hero spawn marker named '" + heroSpawnMarkerName + "'. Goblin will not be repositioned.", this);
         }
 
         heroRenderer = GetComponent<Renderer>();
@@ -94,7 +94,7 @@ public class HeroController : HeroControllerBase // Inherit from HeroControllerB
         }
         else
         {
-            Debug.LogError("HeroController: Renderer or Material not found on Hero GameObject!");
+            Debug.LogError("GoblinOutlawController: Renderer or Material not found on Goblin GameObject!");
         }
 
         groundLevelY = transform.position.y; 
@@ -180,7 +180,7 @@ public class HeroController : HeroControllerBase // Inherit from HeroControllerB
 
             if (isInteractingWithVillage)
             {
-                Debug.Log("Hero moved, stopping village interaction.");
+                Debug.Log("Goblin moved, stopping village interaction.");
                 StopVillageInteraction();
             }
 
@@ -309,7 +309,7 @@ public class HeroController : HeroControllerBase // Inherit from HeroControllerB
                             isInteractingWithVillage = true;
                             currentVillageInteractionTime = 0f;
                             currentInteractingVillage = villageGO;
-                            Debug.Log("Hero started interacting with village: " + villageGO.name);
+                            Debug.Log("Goblin started interacting with village: " + villageGO.name);
                             interactedThisPress = true;
                             break; 
                         }
@@ -526,7 +526,7 @@ public class HeroController : HeroControllerBase // Inherit from HeroControllerB
     {
         if (base.isDefeated) return; 
         base.isDefeated = true; 
-        Debug.Log(gameObject.name + " (HeroController) has been defeated via SetDefeated!");
+        Debug.Log(gameObject.name + " (GoblinOutlawController) has been defeated via SetDefeated!");
         if (characterController != null) characterController.enabled = false;
         this.enabled = false; 
     }
