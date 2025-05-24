@@ -1,35 +1,32 @@
 using UnityEngine;
 using System.Collections.Generic; // Required for Dictionary
 
-public class HeroController : MonoBehaviour
+public class HeroController : HeroControllerBase // Inherit from HeroControllerBase
 {
     public float moveSpeed = 3.0f;
-    public bool IsHidden { get; private set; }
+    public bool IsHidden { get; private set; } // isDefeated is now in HeroControllerBase
     public float timeToHide = 2.0f; 
-    public string heroSpawnMarkerName = "HeroSpawnPointMarkerGO"; // Updated marker name
+    public string heroSpawnMarkerName = "HeroSpawnPointMarkerGO"; 
 
     private float hideTimer = 0f;
     private Renderer heroRenderer;
     private Color originalColor;
     private Color stealthColor;
-    private Color cloakColor; // For cloak ability
+    private Color cloakColor; 
     private float groundLevelY;
 
-    // Cloak Ability properties
     public bool isCloaked = false;
     public float cloakDuration = 5.0f;
     public float cloakCooldown = 20.0f;
     private float cloakTimer = 0f;
     private float cloakCooldownTimer = 0f;
 
-    // Attack properties
     public float attackDamage = 10.0f;
     public float attackRange = 2.0f;
     public float attackCooldown = 1.0f;
     private float attackTimer = 0f;
     public float attackNoiseRadius = 7.0f; 
 
-    // Gold and Looting properties
     public int goldAmount = 0;
     public float lootRange = 2.0f;
     public int villageLootAmount = 10;
@@ -38,10 +35,9 @@ public class HeroController : MonoBehaviour
     public float villageLootNoiseRadius = 5.0f; 
     public bool isInteractingWithVillage = false;
     public float currentVillageInteractionTime = 0f;
-    public float villageInteractionDuration = 1.5f; // How long the "interacting" flag stays true for minions to see
+    public float villageInteractionDuration = 1.5f; 
     public GameObject currentInteractingVillage = null;
 
-    // Tavern Interaction & Upgrades
     public float tavernInteractRange = 3.0f;
     public GameObject tavernShopPanel; 
 
@@ -53,37 +49,36 @@ public class HeroController : MonoBehaviour
     private float speedUpgradeAmount = 0.5f;
     private bool speedPurchased = false;
 
-    // Detection Level
     public float detectionLevel = 0f; 
     public float timeToLoseDetection = 1.0f; 
     
     [HideInInspector] 
     public bool isBeingActivelyDetected = false; 
 
-    // Clue Dropping
     public GameObject cluePrefab; 
     private float clueDropTimer = 0f;
     public float clueDropInterval = 1.0f; 
     public float clueLifetime = 10.0f;
 
-    // Reveal Effect
     private bool isRevealed = false;
     private float revealEffectTimer = 0f;
-    public Color revealedColor = Color.yellow; // Example color for reveal
+    public Color revealedColor = Color.yellow; 
 
-    // Scry Effect
     private bool isScryed = false;
     private float scryEffectTimer = 0f;
     public Color scryedColor = Color.cyan;
 
+    private CharacterController characterController;
+    private Vector3 knockbackVelocity = Vector3.zero;
+    private float knockbackDuration = 0f;
+    private float knockbackTimer = 0f;
+
     void Start()
     {
-        // Reposition based on marker
         GameObject marker = GameObject.Find(heroSpawnMarkerName);
         if (marker != null)
         {
             transform.position = marker.transform.position;
-            // Debug.Log(gameObject.name + " repositioned to marker: " + heroSpawnMarkerName + " at " + transform.position, this);
         }
         else
         {
@@ -95,7 +90,7 @@ public class HeroController : MonoBehaviour
         {
             originalColor = heroRenderer.material.color;
             stealthColor = new Color(originalColor.r * 0.5f, originalColor.g * 0.5f, originalColor.b * 0.5f, 0.5f); 
-            cloakColor = new Color(originalColor.r, originalColor.g, originalColor.b, 0.1f); // Near invisibility for cloak
+            cloakColor = new Color(originalColor.r, originalColor.g, originalColor.b, 0.1f); 
         }
         else
         {
@@ -105,6 +100,16 @@ public class HeroController : MonoBehaviour
         groundLevelY = transform.position.y; 
         IsHidden = false; 
 
+        characterController = GetComponent<CharacterController>();
+        if (characterController == null)
+        {
+            Debug.LogError(gameObject.name + ": CharacterController component not found! Adding one.");
+            characterController = gameObject.AddComponent<CharacterController>();
+            characterController.height = 2.0f;
+            characterController.radius = 0.5f;
+            characterController.center = new Vector3(0, 1.0f, 0); 
+        }
+
         if (tavernShopPanel != null && tavernShopPanel.activeSelf)
         {
             tavernShopPanel.SetActive(false);
@@ -113,20 +118,22 @@ public class HeroController : MonoBehaviour
 
     void Update()
     {
+        if (isDefeated) return; // Stop updates if defeated
+
         if (tavernShopPanel != null && tavernShopPanel.activeSelf)
         {
             return; 
         }
 
         HandleCloakInput(); 
-        HandleMovementAndStealth();
+        HandleMovementAndStealth(); 
         HandleAttack();
         HandleInteraction(); 
         HandleVillageInteractionState(); 
         HandleDetectionLevelDecay(); 
         UpdateCloakTimers(); 
         HandleRevealState(); 
-        HandleScryState(); // Manage scry effect duration
+        HandleScryState(); 
         UpdateVisuals(); 
     }
     
@@ -140,26 +147,36 @@ public class HeroController : MonoBehaviour
         isBeingActivelyDetected = false; 
     }
 
-
     void HandleMovementAndStealth()
     {
+        if (knockbackTimer < knockbackDuration)
+        {
+            characterController.Move(knockbackVelocity * Time.deltaTime);
+            knockbackTimer += Time.deltaTime;
+            return; 
+        }
+        else
+        {
+            knockbackVelocity = Vector3.zero; 
+        }
+
         float horizontalInput = Input.GetAxis("Horizontal"); 
         float verticalInput = Input.GetAxis("Vertical");   
 
-        Vector3 movement = new Vector3(horizontalInput, 0, verticalInput);
-        movement.Normalize(); 
-
-        if (movement.magnitude > 0.01f) 
+        Vector3 movementInput = new Vector3(horizontalInput, 0, verticalInput);
+        movementInput.Normalize(); 
+        
+        Vector3 finalMovement = movementInput * moveSpeed;
+        if (!characterController.isGrounded)
         {
-            transform.Translate(movement * moveSpeed * Time.deltaTime, Space.World);
+            finalMovement.y = Physics.gravity.y * Time.deltaTime; 
+        }
 
-            Vector3 currentPosition = transform.position;
-            currentPosition.y = groundLevelY;
-            transform.position = currentPosition;
-
-            // IsHidden no longer set to false when moving.
-            // Visuals will be handled by UpdateVisuals()
-            hideTimer = 0f;
+        if (movementInput.magnitude > 0.01f) 
+        {
+            characterController.Move(finalMovement * Time.deltaTime);
+            hideTimer = 0f; // Reset hide timer when moving
+            if(IsHidden) IsHidden = false; // Break stealth on move
 
             if (isInteractingWithVillage)
             {
@@ -167,21 +184,20 @@ public class HeroController : MonoBehaviour
                 StopVillageInteraction();
             }
 
-            // Handle Clue Dropping
-            if (!isCloaked) // Do not drop clues if fully cloaked
+            if (!isCloaked && !isRevealed) 
             {
                 clueDropTimer -= Time.deltaTime;
                 if (clueDropTimer <= 0f)
                 {
                     if (cluePrefab != null)
                     {
-                        GameObject clueInstance = Instantiate(cluePrefab, transform.position, Quaternion.identity);
+                        Vector3 clueSpawnPos = transform.position - transform.forward * 0.5f + Vector3.up * 0.1f; 
+                        GameObject clueInstance = Instantiate(cluePrefab, clueSpawnPos, Quaternion.identity);
                         ClueObject clueScript = clueInstance.GetComponent<ClueObject>();
                         if (clueScript != null)
                         {
-                            clueScript.lifetime = this.clueLifetime; // Pass hero's defined lifetime to the clue
+                            clueScript.lifetime = this.clueLifetime; 
                         }
-                        Debug.Log("Hero dropped a clue at " + transform.position);
                     }
                     clueDropTimer = clueDropInterval;
                 }
@@ -189,13 +205,12 @@ public class HeroController : MonoBehaviour
         }
         else 
         {
-            if (!IsHidden && !isCloaked && !isRevealed) // Can only hide if not revealed
+            if (!IsHidden && !isCloaked && !isRevealed) 
             {
                 hideTimer += Time.deltaTime;
                 if (hideTimer >= timeToHide)
                 {
                     IsHidden = true;
-                    // Visuals will be handled by UpdateVisuals()
                 }
             }
         }
@@ -212,12 +227,11 @@ public class HeroController : MonoBehaviour
         {
             attackTimer = attackCooldown;
             NoiseManager.MakeNoise(transform.position, attackNoiseRadius); 
-            IsHidden = false; // Break stealth on attack
-            if (isCloaked) // Break cloak on attack
+            IsHidden = false; 
+            if (isCloaked) 
             {
                 isCloaked = false;
                 cloakTimer = 0f; 
-                // Visuals will be handled by UpdateVisuals()
             }
 
             GameObject[] scouts = GameObject.FindGameObjectsWithTag("Scout");
@@ -226,12 +240,9 @@ public class HeroController : MonoBehaviour
             allMinions.AddRange(scouts);
             allMinions.AddRange(tanks);
 
-            bool hitMinion = false;
-
             foreach (GameObject minionGO in allMinions)
             {
                 if (!minionGO.activeInHierarchy) continue; 
-
                 float distanceToMinion = Vector3.Distance(transform.position, minionGO.transform.position);
                 if (distanceToMinion <= attackRange)
                 {
@@ -239,7 +250,6 @@ public class HeroController : MonoBehaviour
                     if (minionHealth != null)
                     {
                         minionHealth.TakeDamage(attackDamage);
-                        hitMinion = true; 
                         break; 
                     }
                 }
@@ -252,7 +262,6 @@ public class HeroController : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.E)) 
         {
             bool interactedThisPress = false;
-
             if (tavernShopPanel != null && !tavernShopPanel.activeSelf)
             {
                 GameObject[] taverns = GameObject.FindGameObjectsWithTag("HiddenTavern");
@@ -263,13 +272,8 @@ public class HeroController : MonoBehaviour
                     if (distanceToTavern <= tavernInteractRange)
                     {
                         tavernShopPanel.SetActive(true);
-                        IsHidden = false; // Break stealth on tavern interaction
-                        if (isCloaked) // Break cloak on tavern interaction
-                        {
-                            isCloaked = false;
-                            cloakTimer = 0f;
-                        }
-                        // Visuals will be handled by UpdateVisuals()
+                        IsHidden = false; 
+                        if (isCloaked) { isCloaked = false; cloakTimer = 0f; }
                         Debug.Log("Opened Tavern Shop Panel.");
                         interactedThisPress = true;
                         break; 
@@ -283,7 +287,6 @@ public class HeroController : MonoBehaviour
                 foreach (GameObject villageGO in villages)
                 {
                     if (!villageGO.activeInHierarchy) continue;
-
                     float distanceToVillage = Vector3.Distance(transform.position, villageGO.transform.position);
                     if (distanceToVillage <= lootRange)
                     {
@@ -295,27 +298,18 @@ public class HeroController : MonoBehaviour
                                 canLootThisVillage = false;
                             }
                         }
-
                         if (canLootThisVillage)
                         {
                             goldAmount += villageLootAmount;
                             villageLastLootTime[villageGO] = Time.time; 
                             NoiseManager.MakeNoise(transform.position, villageLootNoiseRadius); 
-                            IsHidden = false; // Break stealth on looting
-                            if (isCloaked) // Break cloak on looting
-                            {
-                                isCloaked = false;
-                                cloakTimer = 0f;
-                            }
-                            // Visuals will be handled by UpdateVisuals()
+                            IsHidden = false; 
+                            if (isCloaked) { isCloaked = false; cloakTimer = 0f; }
                             Debug.Log("Looted " + villageGO.name + " for " + villageLootAmount + " gold. Total gold: " + goldAmount + ". Noise made.");
-                            
-                            // Start interaction state for minion detection
                             isInteractingWithVillage = true;
                             currentVillageInteractionTime = 0f;
                             currentInteractingVillage = villageGO;
                             Debug.Log("Hero started interacting with village: " + villageGO.name);
-
                             interactedThisPress = true;
                             break; 
                         }
@@ -323,9 +317,6 @@ public class HeroController : MonoBehaviour
                 }
             }
         }
-        // If E is released and was interacting, stop.
-        // This is a simplified check. A more robust solution might involve tracking E press/release more explicitly
-        // if complex interactions beyond the timed duration are needed.
         if (Input.GetKeyUp(KeyCode.E) && isInteractingWithVillage)
         {
             StopVillageInteraction();
@@ -337,25 +328,18 @@ public class HeroController : MonoBehaviour
         if (isInteractingWithVillage)
         {
             currentVillageInteractionTime += Time.deltaTime;
-
-            // Check conditions to stop interaction
-            if (currentInteractingVillage == null || // Village somehow got destroyed/nulled
-                Vector3.Distance(transform.position, currentInteractingVillage.transform.position) > lootRange + 0.5f || // Moved too far (added buffer)
+            if (currentInteractingVillage == null || 
+                Vector3.Distance(transform.position, currentInteractingVillage.transform.position) > lootRange + 0.5f || 
                 currentVillageInteractionTime >= villageInteractionDuration) 
             {
-                if (currentVillageInteractionTime >= villageInteractionDuration) Debug.Log("Village interaction timed out.");
-                else if (currentInteractingVillage == null) Debug.Log("Interacting village became null.");
-                else Debug.Log("Moved too far from village during interaction.");
                 StopVillageInteraction();
             }
-            // Note: Movement check is primarily in HandleMovementAndStealth for immediate feedback.
-            // 'E' key release check is in HandleInteraction.
         }
     }
 
     void StopVillageInteraction()
     {
-        if (isInteractingWithVillage) // Ensure we only log/reset if actually interacting
+        if (isInteractingWithVillage) 
         {
             Debug.Log("Stopping interaction with village: " + (currentInteractingVillage != null ? currentInteractingVillage.name : "N/A"));
         }
@@ -410,19 +394,16 @@ public class HeroController : MonoBehaviour
         if (heroRenderer != null && heroRenderer.material != null) { heroRenderer.material.color = originalColor; }
     }
 
-    // New methods for Cloak and Visuals
-
     void HandleCloakInput()
     {
-        if (Input.GetKeyDown(KeyCode.LeftShift) && cloakCooldownTimer <= 0 && !isCloaked && !isRevealed) // Cannot cloak if revealed
+        if (Input.GetKeyDown(KeyCode.LeftShift) && cloakCooldownTimer <= 0 && !isCloaked && !isRevealed) 
         {
             isCloaked = true;
             cloakTimer = cloakDuration;
             cloakCooldownTimer = cloakCooldown;
-            hideTimer = 0f; // Reset hide timer as cloak is a more powerful stealth
-            IsHidden = false; // Cloak overrides normal stealth initially
+            hideTimer = 0f; 
+            IsHidden = false; 
             Debug.Log("Cloak activated!");
-            // Visuals will be handled by UpdateVisuals()
         }
     }
 
@@ -436,16 +417,11 @@ public class HeroController : MonoBehaviour
                 isCloaked = false;
                 cloakTimer = 0f;
                 Debug.Log("Cloak ended.");
-                // Check if hero should immediately go into IsHidden state
-                float horizontalInput = Input.GetAxis("Horizontal");
-                float verticalInput = Input.GetAxis("Vertical");
-                Vector3 movement = new Vector3(horizontalInput, 0, verticalInput);
-                if (movement.magnitude < 0.01f)
+                Vector3 movementInput = new Vector3(Input.GetAxis("Horizontal"), 0, Input.GetAxis("Vertical"));
+                if (movementInput.magnitude < 0.01f && !isRevealed) // Check if should try to hide
                 {
-                    // If not moving, start the hide timer for normal stealth
-                    hideTimer = 0f; // Reset to begin counting for IsHidden
+                    hideTimer = 0f; 
                 }
-                // Visuals will be handled by UpdateVisuals()
             }
         }
 
@@ -482,20 +458,16 @@ public class HeroController : MonoBehaviour
         }
     }
 
-    public void ApplyRevealEffect(float duration)
+    public override void ApplyRevealEffect(float duration) // Added override
     {
         Debug.Log(gameObject.name + " has been REVEALED for " + duration + " seconds!");
         isRevealed = true;
         revealEffectTimer = duration;
-
-        // Break existing stealth/cloak
         IsHidden = false;
         isCloaked = false;
         hideTimer = 0f;
         cloakTimer = 0f; 
-        // Cloak cooldown is not reset by reveal, only its active state.
-
-        UpdateVisuals(); // Immediately update to revealed color
+        UpdateVisuals(); 
     }
 
     void HandleRevealState()
@@ -508,17 +480,17 @@ public class HeroController : MonoBehaviour
                 isRevealed = false;
                 revealEffectTimer = 0f;
                 Debug.Log(gameObject.name + " reveal effect wore off.");
-                UpdateVisuals(); // Revert to normal/stealth/cloak color based on current state
+                UpdateVisuals(); 
             }
         }
     }
 
-    public void ApplyScryEffect(float duration)
+    public override void ApplyScryEffect(float duration) // Added override
     {
         Debug.Log(gameObject.name + " is being SCRYED for " + duration + " seconds!");
         isScryed = true;
         scryEffectTimer = duration;
-        UpdateVisuals(); // Immediately update visuals
+        UpdateVisuals(); 
     }
 
     void HandleScryState()
@@ -534,5 +506,28 @@ public class HeroController : MonoBehaviour
                 UpdateVisuals(); 
             }
         }
+    }
+
+    public override void ApplyKnockback(Vector3 force, float duration) // Added override
+    {
+        if (duration <= 0) return;
+        knockbackVelocity = force; 
+        knockbackDuration = duration;
+        knockbackTimer = 0f;
+        IsHidden = false; 
+        if (isCloaked) isCloaked = false; 
+        hideTimer = 0f;
+        cloakTimer = 0f;
+        Debug.Log(gameObject.name + " is knocked back with velocity " + force + " for " + duration + "s!");
+        UpdateVisuals(); 
+    }
+
+    public override void SetDefeated()
+    {
+        if (base.isDefeated) return; 
+        base.isDefeated = true; 
+        Debug.Log(gameObject.name + " (HeroController) has been defeated via SetDefeated!");
+        if (characterController != null) characterController.enabled = false;
+        this.enabled = false; 
     }
 }

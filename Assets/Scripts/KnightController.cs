@@ -1,10 +1,10 @@
 using UnityEngine;
 using System.Collections.Generic; // Required for Dictionary
 
-public class KnightController : MonoBehaviour
+public class KnightController : HeroControllerBase // Inherit from HeroControllerBase
 {
     // Knight Combat Stats
-    public float moveSpeed = 2.8f; 
+    public float moveSpeed = 2.8f; // isDefeated is now in HeroControllerBase
     public float attackDamage = 15.0f; 
     public float attackRange = 2.5f; 
     public float attackCooldown = 1.2f;
@@ -69,6 +69,15 @@ public class KnightController : MonoBehaviour
     private bool isScryed = false;
     private float scryEffectTimer = 0f;
     public Color scryedColor = Color.cyan;
+    
+    // Interaction Range (already used for village, now for deeds too)
+    public float interactionRange = 2.0f; 
+
+    // Knockback
+    private CharacterController characterController;
+    private Vector3 knockbackVelocity = Vector3.zero;
+    private float knockbackDuration = 0f;
+    private float knockbackTimer = 0f;
 
     void Start()
     {
@@ -97,7 +106,17 @@ public class KnightController : MonoBehaviour
             Debug.LogError(gameObject.name + ": Health component not found on Knight GameObject!");
         }
 
-        groundLevelY = transform.position.y; 
+        characterController = GetComponent<CharacterController>();
+        if (characterController == null)
+        {
+            Debug.LogError(gameObject.name + ": CharacterController component not found! Adding one.");
+            characterController = gameObject.AddComponent<CharacterController>();
+            characterController.height = 2.0f;
+            characterController.radius = 0.5f;
+            characterController.center = new Vector3(0, 1.0f, 0);
+        }
+
+        groundLevelY = transform.position.y; // Still useful for reference or if CC settings are minimal
         maxLevel = valorToNextLevel.Length + 1; // Initialize maxLevel
     }
 
@@ -123,10 +142,10 @@ public class KnightController : MonoBehaviour
         HandleAttack();
         HandleShieldBashInput(); 
         HandleDefensiveStanceInput(); 
-        HandleInteractionWithVillage(); 
+        HandleInteraction(); 
         HandleDetectionLevelDecay(); 
         HandleRevealState(); 
-        HandleScryState(); // Manage scry effect duration
+        HandleScryState(); 
         UpdateVisuals(); 
     }
     
@@ -142,19 +161,32 @@ public class KnightController : MonoBehaviour
 
     void HandleMovement() 
     {
+        if (knockbackTimer < knockbackDuration)
+        {
+            characterController.Move(knockbackVelocity * Time.deltaTime);
+            knockbackTimer += Time.deltaTime;
+            return; // Skip normal movement if being knocked back
+        }
+        else
+        {
+            knockbackVelocity = Vector3.zero;
+        }
+
         float horizontalInput = Input.GetAxis("Horizontal"); 
         float verticalInput = Input.GetAxis("Vertical");   
 
-        Vector3 movement = new Vector3(horizontalInput, 0, verticalInput);
-        movement.Normalize(); 
-
-        if (movement.magnitude > 0.01f) 
+        Vector3 movementInput = new Vector3(horizontalInput, 0, verticalInput);
+        movementInput.Normalize(); 
+        
+        Vector3 finalMovement = movementInput * moveSpeed;
+        if (!characterController.isGrounded)
         {
-            transform.Translate(movement * moveSpeed * Time.deltaTime, Space.World);
+            finalMovement.y = Physics.gravity.y * Time.deltaTime; 
+        }
 
-            Vector3 currentPosition = transform.position;
-            currentPosition.y = groundLevelY;
-            transform.position = currentPosition;
+        if (movementInput.magnitude > 0.01f) 
+        {
+            characterController.Move(finalMovement * Time.deltaTime);
 
             if (isInteractingWithVillage) 
             {
@@ -197,11 +229,12 @@ public class KnightController : MonoBehaviour
                         bool wasKilled = minionHealth.TakeDamage(attackDamage);
                         if (wasKilled)
                         {
-                            valorPoints += valorFromKill;
-                            Debug.Log("Knight gained " + valorFromKill + " Valor for slaying " + minionGO.name + ". Total Valor: " + valorPoints);
-                            CheckForLevelUp(); // Check for level up after gaining valor
+                            GainValor(valorFromKill); 
+                            // The GainValor method now handles the primary "gained X Valor" log.
+                            // We can add a more specific log here if needed, or let GainValor be the sole reporter.
+                            Debug.Log("Knight gained " + valorFromKill + " Valor specifically for slaying " + minionGO.name + ".");
                         }
-                        break; // Knight hits one target per swing
+                        break; 
                     }
                 }
             }
@@ -237,41 +270,79 @@ public class KnightController : MonoBehaviour
         }
     }
 
-    // Renamed from HandleInteraction to be more specific if this functionality is kept solely for village interaction.
-    // If Knight has other 'E' interactions, this can be expanded.
-    void HandleInteractionWithVillage() 
+    void HandleInteraction() 
     {
         if (Input.GetKeyDown(KeyCode.E)) 
         {
-            // Example: Knight "inspects" a village, making them a target for Priests or other interactions.
-            // This does not involve looting or gold.
-            GameObject[] villages = GameObject.FindGameObjectsWithTag("Village");
-            foreach (GameObject villageGO in villages)
-            {
-                if (!villageGO.activeInHierarchy) continue;
+            bool interactedThisPress = false;
 
-                float distanceToVillage = Vector3.Distance(transform.position, villageGO.transform.position);
-                // Using a generic interaction range, not lootRange.
-                // This range (1.0f) should ideally be a public variable if this interaction is complex.
-                if (distanceToVillage <= 1.0f) 
+            // --- Heroic Deed Interaction ---
+            GameObject[] deedObjects = GameObject.FindGameObjectsWithTag("HeroicDeed");
+            GameObject closestDeedObject = null;
+            float minDistanceDeed = Mathf.Infinity;
+
+            foreach (GameObject deedGO in deedObjects)
+            {
+                if (!deedGO.activeInHierarchy) continue;
+                HeroicDeedObjective objective = deedGO.GetComponent<HeroicDeedObjective>();
+                if (objective != null && !objective.isCompleted) 
                 {
-                    isInteractingWithVillage = true;
-                    currentVillageInteractionTime = 0f;
-                    currentInteractingVillage = villageGO;
-                    Debug.Log("Knight started 'inspecting' village: " + villageGO.name);
-                    break; 
+                    float distanceToDeed = Vector3.Distance(transform.position, deedGO.transform.position);
+                    if (distanceToDeed < minDistanceDeed)
+                    {
+                        minDistanceDeed = distanceToDeed;
+                        closestDeedObject = deedGO;
+                    }
                 }
+            }
+
+            if (closestDeedObject != null && minDistanceDeed <= interactionRange)
+            {
+                HeroicDeedObjective deedToComplete = closestDeedObject.GetComponent<HeroicDeedObjective>();
+                if (deedToComplete != null) 
+                {
+                    deedToComplete.CompleteDeed(this); 
+                    // The CompleteDeed method in HeroicDeedObjective now calls knight.GainValor()
+                    interactedThisPress = true; 
+                    // Knight does not have IsHidden or stealth visuals to break.
+                }
+            }
+
+            // --- Village Interaction (if no deed was interacted with) ---
+            if (!interactedThisPress)
+            {
+                GameObject[] villages = GameObject.FindGameObjectsWithTag("Village");
+                foreach (GameObject villageGO in villages)
+                {
+                    if (!villageGO.activeInHierarchy) continue;
+
+                    float distanceToVillage = Vector3.Distance(transform.position, villageGO.transform.position);
+                    if (distanceToVillage <= interactionRange) 
+                    {
+                        isInteractingWithVillage = true;
+                        currentVillageInteractionTime = 0f;
+                        currentInteractingVillage = villageGO;
+                        Debug.Log("Knight started 'inspecting' village: " + villageGO.name);
+                        interactedThisPress = true; 
+                        break; 
+                    }
+                }
+            }
+            
+            if (!interactedThisPress)
+            {
+                Debug.Log("Knight pressed E, but no interactable (Deed or Village) found in range.");
             }
         }
 
-        // This manages the duration of the interaction state.
+        // This manages the duration of the village interaction state.
         if (isInteractingWithVillage)
         {
             currentVillageInteractionTime += Time.deltaTime;
             if (currentInteractingVillage == null || 
-                Vector3.Distance(transform.position, currentInteractingVillage.transform.position) > 1.5f || // Range + buffer
+                Vector3.Distance(transform.position, currentInteractingVillage.transform.position) > interactionRange + 0.5f || 
                 currentVillageInteractionTime >= villageInteractionDuration ||
-                Input.GetKeyUp(KeyCode.E)) // Stop if E is released
+                Input.GetKeyUp(KeyCode.E)) 
             {
                 if(Input.GetKeyUp(KeyCode.E)) Debug.Log("Knight stopped inspecting village (E released).");
                 else if (currentVillageInteractionTime >= villageInteractionDuration) Debug.Log("Knight village inspection timed out.");
@@ -280,6 +351,33 @@ public class KnightController : MonoBehaviour
                 StopVillageInteraction();
             }
         }
+    }
+
+    public void GainValor(int amount)
+    {
+        if (amount <= 0) return;
+
+        // Check if already at max level and if valor for the last actual level up was met.
+        // valorToNextLevel.Length is the number of level transitions defined.
+        // So maxLevel = valorToNextLevel.Length + 1.
+        // The last index in valorToNextLevel is valorToNextLevel.Length - 1, which corresponds to leveling up from (maxLevel - 1) to maxLevel.
+        
+        // If currentLevel is already maxLevel, we only add valor if it's for "post-max-level" accumulation.
+        // Otherwise, we check if the valor is enough for the *next* level up.
+        if (currentLevel >= maxLevel) 
+        {
+            // This condition means the Knight is at maxLevel.
+            // The CheckForLevelUp() will not trigger further level increases.
+            // We can just add valor or cap it if desired.
+            valorPoints += amount;
+            Debug.Log(name + " is at Max Level (" + maxLevel + "). Gained " + amount + " Valor. Total Valor: " + valorPoints);
+            // No call to CheckForLevelUp needed if already at max level and no more progression defined.
+            return; 
+        }
+        
+        valorPoints += amount;
+        Debug.Log(name + " gained " + amount + " Valor. Total Valor: " + valorPoints);
+        CheckForLevelUp();
     }
 
     void HandleShieldBashInput()
@@ -433,5 +531,52 @@ public class KnightController : MonoBehaviour
                 UpdateVisuals(); 
             }
         }
+    }
+
+    public void ApplyKnockback(Vector3 force, float duration)
+    {
+        if (duration <= 0) return;
+        knockbackVelocity = force; // Directly use force as velocity
+        knockbackDuration = duration;
+        knockbackTimer = 0f;
+        Debug.Log(gameObject.name + " is knocked back with velocity " + force + " for " + duration + "s!");
+        // Knight does not have stealth/cloak to break, but if it had other channeled actions, they'd be interrupted here.
+        // For example, if village interaction was a channel:
+        // if (isInteractingWithVillage) StopVillageInteraction(); 
+    }
+
+    public override void SetDefeated()
+    {
+        if (isDefeated) return;
+
+        base.isDefeated = true; // Set the inherited flag
+        Debug.Log(gameObject.name + " (KnightController) has been defeated via SetDefeated!");
+
+        if (characterController != null) characterController.enabled = false;
+        this.enabled = false; // Disable this script's Update loop
+        // Health.cs will handle gameObject.SetActive(false)
+    }
+
+    // ApplyRevealEffect and ApplyScryEffect are already public and will act as overrides
+    // if they were virtual/abstract in base. Since they are concrete in base,
+    // we don't need 'override' unless HeroControllerBase's versions were virtual/abstract.
+    // For this task, we assume HeroControllerBase defines them as public abstract.
+    // If HeroControllerBase made them public virtual, then 'override' is needed here.
+    // Given the current HeroControllerBase, these are direct implementations of abstract methods.
+
+    public override void ApplyRevealEffect(float duration) // Added override
+    {
+        Debug.Log(gameObject.name + " has been REVEALED for " + duration + " seconds!");
+        isRevealed = true;
+        revealEffectTimer = duration;
+        UpdateVisuals(); 
+    }
+
+    public override void ApplyScryEffect(float duration) // Added override
+    {
+        Debug.Log(gameObject.name + " is being SCRYED for " + duration + " seconds!");
+        isScryed = true;
+        scryEffectTimer = duration;
+        UpdateVisuals(); 
     }
 }

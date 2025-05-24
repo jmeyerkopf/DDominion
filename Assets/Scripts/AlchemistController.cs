@@ -1,10 +1,10 @@
 using UnityEngine;
 using System.Collections.Generic; // Required for Dictionary
 
-public class AlchemistController : MonoBehaviour
+public class AlchemistController : HeroControllerBase // Inherit from HeroControllerBase
 {
     // Alchemist Stats
-    public float moveSpeed = 3.0f;
+    public float moveSpeed = 3.0f; // isDefeated is now in HeroControllerBase
     public bool IsHidden { get; private set; }
     public float timeToHide = 3.0f; 
     public string heroSpawnMarkerName = "HeroSpawnPointMarkerGO"; 
@@ -27,8 +27,6 @@ public class AlchemistController : MonoBehaviour
     public List<IngredientType> collectedIngredients = new List<IngredientType>();
 
     // Village Interaction (Kept for compatibility, but Alchemist doesn't use it for looting/tavern)
-    // This can be removed if no other system (like Priest AI targeting "hero interacting with village") needs it.
-    // For now, it's harmless but mostly unused by Alchemist's core loop.
     public bool isInteractingWithVillage = false; 
     public float currentVillageInteractionTime = 0f; 
     public float villageInteractionDuration = 1.5f; 
@@ -55,12 +53,18 @@ public class AlchemistController : MonoBehaviour
     public List<PotionEffectType> availablePotions = new List<PotionEffectType>();
     private Dictionary<HashSet<IngredientType>, PotionEffectType> potionRecipes;
     private List<IngredientType> selectedIngredientsForCrafting = new List<IngredientType>();
-    public int maxSelectedIngredients = 2; // Typically 2 for this design
+    public int maxSelectedIngredients = 2; 
 
     // Potion Effect Application Fields
     private float baseMoveSpeed;
     private float baseAttackDamage;
     private Health selfHealthComponent;
+
+    // Knockback
+    private CharacterController characterController;
+    private Vector3 knockbackVelocity = Vector3.zero;
+    private float knockbackDuration = 0f;
+    private float knockbackTimer = 0f;
 
     public float healPotionAmount = 30f;
 
@@ -69,13 +73,12 @@ public class AlchemistController : MonoBehaviour
     public float speedBoostDuration = 10.0f;
 
     private float damageBuffTimer = 0f;
-    public float damageBuffAmount = 5.0f; // Flat amount added to base damage
+    public float damageBuffAmount = 5.0f; 
     public float damageBuffDuration = 10.0f;
 
-    public GameObject smokeCloudPrefab; // Assign in Inspector
-    public float smokeCloudDuration = 5.0f; // If the cloud has its own lifetime script, this might not be needed here
-                                         // For simplicity, we'll assume it's just instantiated.
-    public GameObject minorExplosionPrefab; // Assign in Inspector (could be a particle effect + small damage dealer)
+    public GameObject smokeCloudPrefab; 
+    public float smokeCloudDuration = 5.0f; 
+    public GameObject minorExplosionPrefab; 
     public float minorExplosionDamage = 5f;
     public float minorExplosionRadius = 1.5f;
     public float minorExplosionNoiseRadius = 4.0f;
@@ -107,7 +110,7 @@ public class AlchemistController : MonoBehaviour
         groundLevelY = transform.position.y; 
         IsHidden = false; 
 
-        baseMoveSpeed = moveSpeed; // Store base values
+        baseMoveSpeed = moveSpeed; 
         baseAttackDamage = attackDamage;
         selfHealthComponent = GetComponent<Health>();
         if (selfHealthComponent == null)
@@ -115,24 +118,34 @@ public class AlchemistController : MonoBehaviour
             Debug.LogError(gameObject.name + ": Health component not found for Alchemist!");
         }
 
+        characterController = GetComponent<CharacterController>();
+        if (characterController == null)
+        {
+            Debug.LogError(gameObject.name + ": CharacterController component not found! Adding one.");
+            characterController = gameObject.AddComponent<CharacterController>();
+            characterController.height = 2.0f;
+            characterController.radius = 0.5f;
+            characterController.center = new Vector3(0, 1.0f, 0);
+        }
+
         InitializePotionRecipes();
     }
 
     void Update()
     {
-        HandlePotionEffects(); // Manage active potion effect timers
+        if (isDefeated) return; 
+
+        HandlePotionEffects(); 
         HandleMovementAndStealth();
         HandleAttack();
         HandleInteraction(); 
         HandleCraftingInput(); 
-        // HandleVillageInteractionState(); 
         HandleDetectionLevelDecay(); 
         HandleRevealState(); 
         HandleScryState(); 
         UpdateVisuals(); 
 
-        // Input for using potion
-        if (Input.GetKeyDown(KeyCode.Alpha1)) // Using Alpha1 for Alchemist's use potion
+        if (Input.GetKeyDown(KeyCode.Alpha1)) 
         {
             UseFirstAvailablePotion();
         }
@@ -142,25 +155,26 @@ public class AlchemistController : MonoBehaviour
     {
         potionRecipes = new Dictionary<HashSet<IngredientType>, PotionEffectType>(HashSet<IngredientType>.CreateSetComparer());
 
-        // Define recipes
+        // Original recipes
         potionRecipes.Add(new HashSet<IngredientType> { IngredientType.BogBloom, IngredientType.LeechDust }, PotionEffectType.HealSelf);
-        potionRecipes.Add(new HashSet<IngredientType> { IngredientType.FirePetal, IngredientType.CrystalShard }, PotionEffectType.SpeedBoost);
+        // SpeedBoost is now randomized for CrystalShard + BogBloom
         potionRecipes.Add(new HashSet<IngredientType> { IngredientType.ShadowFern, IngredientType.GraveMoss }, PotionEffectType.DamageBuff);
         
-        // Example of a "failed" recipe (optional, or just default to NullEffect/MinorExplosion for non-matches)
-        // potionRecipes.Add(new HashSet<IngredientType> { IngredientType.BogBloom, IngredientType.FirePetal }, PotionEffectType.MinorExplosion); 
+        // New successful recipes
+        potionRecipes.Add(new HashSet<IngredientType> { IngredientType.FirePetal, IngredientType.LeechDust }, PotionEffectType.DamageBuff); // Alt DamageBuff
+        potionRecipes.Add(new HashSet<IngredientType> { IngredientType.ShadowFern, IngredientType.CrystalShard }, PotionEffectType.SmokeCloud);
+        potionRecipes.Add(new HashSet<IngredientType> { IngredientType.FirePetal, IngredientType.BogBloom }, PotionEffectType.MinorExplosion); // Predictable MinorExplosion
+
         Debug.Log("Potion recipes initialized. Count: " + potionRecipes.Count);
     }
 
     void HandleCraftingInput()
     {
-        // Select ingredient for crafting slot
         if (Input.GetKeyDown(KeyCode.C))
         {
             if (selectedIngredientsForCrafting.Count < maxSelectedIngredients)
             {
                 bool ingredientAdded = false;
-                // Iterate through all possible IngredientTypes to find one the Alchemist has and hasn't selected yet
                 foreach (IngredientType typeInInventory in System.Enum.GetValues(typeof(IngredientType)))
                 {
                     if (collectedIngredients.Contains(typeInInventory) && !selectedIngredientsForCrafting.Contains(typeInInventory))
@@ -182,14 +196,12 @@ public class AlchemistController : MonoBehaviour
             }
         }
 
-        // Clear crafting slots
         if (Input.GetKeyDown(KeyCode.X))
         {
             selectedIngredientsForCrafting.Clear();
             Debug.Log("Crafting slots cleared.");
         }
 
-        // Attempt to craft potion
         if (Input.GetKeyDown(KeyCode.F))
         {
             AttemptCraftPotion();
@@ -204,14 +216,13 @@ public class AlchemistController : MonoBehaviour
             return;
         }
 
-        // Verify and consume ingredients
         List<IngredientType> tempCollectedIngredients = new List<IngredientType>(collectedIngredients);
         bool canCraft = true;
         foreach (IngredientType selectedIng in selectedIngredientsForCrafting)
         {
             if (tempCollectedIngredients.Contains(selectedIng))
             {
-                tempCollectedIngredients.Remove(selectedIng); // Remove one instance
+                tempCollectedIngredients.Remove(selectedIng); 
             }
             else
             {
@@ -223,29 +234,46 @@ public class AlchemistController : MonoBehaviour
 
         if (canCraft)
         {
-            // Actually consume from the main list
             foreach (IngredientType selectedIng in selectedIngredientsForCrafting)
             {
                 collectedIngredients.Remove(selectedIng);
             }
 
+            PotionEffectType resultEffect;
             HashSet<IngredientType> currentSelectionHashSet = new HashSet<IngredientType>(selectedIngredientsForCrafting);
-            if (potionRecipes.TryGetValue(currentSelectionHashSet, out PotionEffectType resultEffect))
+
+            // Specific randomized recipe: CrystalShard + BogBloom
+            if (currentSelectionHashSet.SetEquals(new HashSet<IngredientType> { IngredientType.CrystalShard, IngredientType.BogBloom }))
             {
-                availablePotions.Add(resultEffect);
-                Debug.Log("Successfully crafted: " + resultEffect + ". Potions available: " + availablePotions.Count);
+                float randomChance = Random.value; 
+                if (randomChance < 0.7f) // 70%
+                {
+                    resultEffect = PotionEffectType.SpeedBoost;
+                }
+                else // 30%
+                {
+                    resultEffect = PotionEffectType.MinorExplosion;
+                }
+                Debug.Log("Crafted (CrystalShard + BogBloom) with random outcome: " + resultEffect);
             }
+            // Standard recipe lookup
+            else if (potionRecipes.TryGetValue(currentSelectionHashSet, out PotionEffectType predefinedEffect))
+            {
+                resultEffect = predefinedEffect;
+                Debug.Log("Successfully crafted predefined recipe: " + resultEffect);
+            }
+            // Default failure
             else
             {
-                // Default failure effect
-                availablePotions.Add(PotionEffectType.NullEffect); 
-                Debug.Log("Crafting failed! Resulted in NullEffect. Potions available: " + availablePotions.Count);
-                // Optionally, trigger a MinorExplosion or other failure feedback here.
-                // NoiseManager.MakeNoise(transform.position, 3.0f); // Small noise for failed craft
+                resultEffect = PotionEffectType.NullEffect; 
+                Debug.Log("Crafting failed (no matching recipe)! Resulted in: " + resultEffect);
             }
+            
+            availablePotions.Add(resultEffect);
+            Debug.Log("Total potions available: " + availablePotions.Count);
         }
         
-        selectedIngredientsForCrafting.Clear(); // Clear slots after attempt, successful or not
+        selectedIngredientsForCrafting.Clear(); 
     }
 
     void UseFirstAvailablePotion()
@@ -265,7 +293,7 @@ public class AlchemistController : MonoBehaviour
 
     void ApplyPotionEffect(PotionEffectType effectType)
     {
-        if (IsHidden) // Using a potion breaks stealth
+        if (IsHidden) 
         {
             IsHidden = false;
             hideTimer = 0f;
@@ -298,14 +326,12 @@ public class AlchemistController : MonoBehaviour
                 {
                     Instantiate(minorExplosionPrefab, transform.position + Vector3.up * 0.5f, Quaternion.identity);
                 }
-                // Optional: Deal small AoE damage to nearby entities (including self if desired)
                 Collider[] hits = Physics.OverlapSphere(transform.position, minorExplosionRadius);
                 foreach (Collider hit in hits)
                 {
                     Health health = hit.GetComponent<Health>();
                     if (health != null)
                     {
-                        // Can distinguish between self-damage and damaging others if needed
                         health.TakeDamage(minorExplosionDamage); 
                     }
                 }
@@ -315,11 +341,9 @@ public class AlchemistController : MonoBehaviour
                 if (smokeCloudPrefab != null)
                 {
                     GameObject cloud = Instantiate(smokeCloudPrefab, transform.position, Quaternion.identity);
-                    // Smoke cloud might have its own script to destroy itself after smokeCloudDuration
-                    // Or handle its destruction here if it's a simple particle effect:
-                    // Destroy(cloud, smokeCloudDuration); 
+                    // Assuming SmokeCloud has its own lifetime management if needed
                 }
-                NoiseManager.MakeNoise(transform.position, 3.0f); // Smoke cloud makes some noise
+                NoiseManager.MakeNoise(transform.position, 3.0f); 
                 break;
             case PotionEffectType.NullEffect:
                 Debug.Log("Potion had no effect (NullEffect).");
@@ -329,24 +353,22 @@ public class AlchemistController : MonoBehaviour
 
     void HandlePotionEffects()
     {
-        // Speed Boost Timer
         if (speedBoostTimer > 0)
         {
             speedBoostTimer -= Time.deltaTime;
             if (speedBoostTimer <= 0)
             {
-                moveSpeed = baseMoveSpeed; // Revert to base speed
+                moveSpeed = baseMoveSpeed; 
                 Debug.Log("SpeedBoost wore off. Speed reverted to " + moveSpeed);
             }
         }
 
-        // Damage Buff Timer
         if (damageBuffTimer > 0)
         {
             damageBuffTimer -= Time.deltaTime;
             if (damageBuffTimer <= 0)
             {
-                attackDamage = baseAttackDamage; // Revert to base damage
+                attackDamage = baseAttackDamage; 
                 Debug.Log("DamageBuff wore off. Attack damage reverted to " + attackDamage);
             }
         }
@@ -364,36 +386,48 @@ public class AlchemistController : MonoBehaviour
 
     void HandleMovementAndStealth()
     {
+        if (knockbackTimer < knockbackDuration)
+        {
+            characterController.Move(knockbackVelocity * Time.deltaTime);
+            knockbackTimer += Time.deltaTime;
+            return; 
+        }
+        else
+        {
+            knockbackVelocity = Vector3.zero;
+        }
+
         float horizontalInput = Input.GetAxis("Horizontal"); 
         float verticalInput = Input.GetAxis("Vertical");   
 
-        Vector3 movement = new Vector3(horizontalInput, 0, verticalInput);
-        movement.Normalize(); 
-
-        if (movement.magnitude > 0.01f) 
+        Vector3 movementInput = new Vector3(horizontalInput, 0, verticalInput);
+        movementInput.Normalize(); 
+        
+        Vector3 finalMovement = movementInput * moveSpeed;
+        if (!characterController.isGrounded)
         {
-            transform.Translate(movement * moveSpeed * Time.deltaTime, Space.World);
+            finalMovement.y = Physics.gravity.y * Time.deltaTime; 
+        }
 
-            Vector3 currentPosition = transform.position;
-            currentPosition.y = groundLevelY;
-            transform.position = currentPosition;
+        if (movementInput.magnitude > 0.01f) 
+        {
+            characterController.Move(finalMovement * Time.deltaTime);
 
-            if (IsHidden) // If was hidden, break stealth
+            if (IsHidden) 
             {
                 IsHidden = false;
                  Debug.Log("Alchemist moved, stealth broken.");
             }
             hideTimer = 0f;
 
-            if (isInteractingWithVillage) // If Alchemist has some form of village interaction that movement breaks
+            if (isInteractingWithVillage) 
             {
                 Debug.Log("Alchemist moved, stopping village interaction.");
                 StopVillageInteraction();
             }
         }
-        else // Standing still
+        else 
         {
-            // Only try to hide if not revealed and not already hidden
             if (!isRevealed && !isScryed && !IsHidden) 
             {
                 hideTimer += Time.deltaTime;
@@ -419,7 +453,7 @@ public class AlchemistController : MonoBehaviour
             NoiseManager.MakeNoise(transform.position, attackNoiseRadius); 
             if (IsHidden)
             {
-                IsHidden = false; // Break stealth on attack
+                IsHidden = false; 
                 Debug.Log("Alchemist attacked, stealth broken.");
                 hideTimer = 0f;
             }
@@ -441,7 +475,7 @@ public class AlchemistController : MonoBehaviour
                     Health minionHealth = minionGO.GetComponent<Health>();
                     if (minionHealth != null)
                     {
-                        minionHealth.TakeDamage(attackDamage); // Alchemist does not use Valor system
+                        minionHealth.TakeDamage(attackDamage); 
                         break; 
                     }
                 }
@@ -454,8 +488,6 @@ public class AlchemistController : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.E)) 
         {
             bool interactionOccurred = false; 
-
-            // Ingredient Collection Logic
             GameObject[] sources = GameObject.FindGameObjectsWithTag("IngredientSource");
             GameObject closestSource = null;
             float minDistance = Mathf.Infinity;
@@ -485,10 +517,9 @@ public class AlchemistController : MonoBehaviour
                               ". Total " + ingredientComp.type + " collected: " + collectedIngredients.FindAll(ing => ing == ingredientComp.type).Count);
                     
                     NoiseManager.MakeNoise(transform.position, 5.0f); 
-
                     Destroy(closestSource); 
                     
-                    if (IsHidden) // Break stealth on interaction
+                    if (IsHidden) 
                     {
                         IsHidden = false;
                         Debug.Log("Alchemist collected ingredient, stealth broken.");
@@ -498,8 +529,6 @@ public class AlchemistController : MonoBehaviour
                 }
             }
 
-            // Village Interaction (only if no ingredient was collected and if this logic is intended for Alchemist)
-            // This part is optional and depends on whether Alchemist has a non-looting interaction with villages.
             if (!interactionOccurred && currentInteractingVillage == null) 
             {
                 GameObject[] villages = GameObject.FindGameObjectsWithTag("Village");
@@ -526,27 +555,11 @@ public class AlchemistController : MonoBehaviour
             }
         }
 
-        // If E is released and was interacting with a village, stop.
         if (Input.GetKeyUp(KeyCode.E) && isInteractingWithVillage)
         {
             StopVillageInteraction();
         }
     }
-
-    // This method may not be needed if Alchemist's village interaction is instantaneous or doesn't have a timed duration.
-    // void HandleVillageInteractionState()
-    // {
-    //     if (isInteractingWithVillage)
-    //     {
-    //         currentVillageInteractionTime += Time.deltaTime;
-    //         if (currentInteractingVillage == null || 
-    //             Vector3.Distance(transform.position, currentInteractingVillage.transform.position) > interactionRange + 0.5f || 
-    //             currentVillageInteractionTime >= villageInteractionDuration) 
-    //         {
-    //             StopVillageInteraction();
-    //         }
-    //     }
-    // }
 
     void StopVillageInteraction()
     {
@@ -589,7 +602,7 @@ public class AlchemistController : MonoBehaviour
         }
     }
 
-    public void ApplyRevealEffect(float duration)
+    public override void ApplyRevealEffect(float duration)
     {
         Debug.Log(gameObject.name + " has been REVEALED for " + duration + " seconds!");
         isRevealed = true;
@@ -614,7 +627,7 @@ public class AlchemistController : MonoBehaviour
         }
     }
 
-    public void ApplyScryEffect(float duration)
+    public override void ApplyScryEffect(float duration)
     {
         Debug.Log(gameObject.name + " is being SCRYED for " + duration + " seconds!");
         isScryed = true;
@@ -635,5 +648,28 @@ public class AlchemistController : MonoBehaviour
                 UpdateVisuals(); 
             }
         }
+    }
+
+    public override void ApplyKnockback(Vector3 force, float duration)
+    {
+        if (duration <= 0) return;
+        knockbackVelocity = force; 
+        knockbackDuration = duration;
+        knockbackTimer = 0f;
+        IsHidden = false; 
+        hideTimer = 0f;
+        Debug.Log(gameObject.name + " is knocked back with velocity " + force + " for " + duration + "s!");
+        UpdateVisuals(); 
+    }
+
+    public override void SetDefeated()
+    {
+        if (isDefeated) return;
+
+        base.isDefeated = true; 
+        Debug.Log(gameObject.name + " (AlchemistController) has been defeated via SetDefeated!");
+        
+        if (characterController != null) characterController.enabled = false;
+        this.enabled = false; 
     }
 }

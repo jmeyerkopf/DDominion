@@ -10,10 +10,12 @@ public class Health : MonoBehaviour
     public int goldDropAmount = 1;      // Number of gold nuggets to drop
 
     private float currentDamageReduction = 0f;
+    private HeroControllerBase heroBase; // Reference to the hero base script
 
     void Start()
     {
         currentHealth = maxHealth;
+        heroBase = GetComponent<HeroControllerBase>(); // Get the component
     }
 
     public void SetDamageReduction(float reductionPercent)
@@ -31,7 +33,7 @@ public class Health : MonoBehaviour
         if (currentHealth <= 0)
         {
             currentHealth = 0;
-            Die();
+            Die(); // Call Die, which now also handles SetDefeated
             return true; // Damage was lethal
         }
         return false; // Damage was not lethal
@@ -40,6 +42,12 @@ public class Health : MonoBehaviour
     void Die()
     {
         Debug.Log(gameObject.name + " has been defeated!");
+
+        // If this Health component is on a hero, tell its controller it's defeated
+        if (heroBase != null && !heroBase.isDefeated)
+        {
+            heroBase.SetDefeated();
+        }
 
         // Gold drop logic specifically for "Scout"
         if (gameObject.CompareTag("Scout"))
@@ -60,9 +68,10 @@ public class Health : MonoBehaviour
             }
         }
         
-        gameObject.SetActive(false); 
+        gameObject.SetActive(false); // Deactivate the GameObject
         
-        if (gameObject.CompareTag("Hero")) { Debug.Log("GAME OVER - Hero Defeated"); }
+        // The "GAME OVER - Hero Defeated" log is now effectively handled by GameManager
+        // if (gameObject.CompareTag("Hero")) { Debug.Log("GAME OVER - Hero Defeated"); } 
     }
 
     public float GetCurrentHealth()

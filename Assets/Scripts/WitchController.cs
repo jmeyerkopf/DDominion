@@ -68,6 +68,12 @@ public class WitchController : MonoBehaviour
     private LeyLineShrine targetShrine = null;
     private Vector3 positionAtChannelStart; 
 
+    // Knockback
+    private CharacterController characterController;
+    private Vector3 knockbackVelocity = Vector3.zero;
+    private float knockbackDuration = 0f;
+    private float knockbackTimer = 0f;
+
     void Start()
     {
         GameObject marker = GameObject.Find(heroSpawnMarkerName);
@@ -99,6 +105,16 @@ public class WitchController : MonoBehaviour
 
         groundLevelY = transform.position.y; 
         IsHidden = false; 
+
+        characterController = GetComponent<CharacterController>();
+        if (characterController == null)
+        {
+            Debug.LogError(gameObject.name + ": CharacterController component not found! Adding one.");
+            characterController = gameObject.AddComponent<CharacterController>();
+            characterController.height = 2.0f;
+            characterController.radius = 0.5f;
+            characterController.center = new Vector3(0, 1.0f, 0);
+        }
     }
 
     void Update()
@@ -132,19 +148,32 @@ public class WitchController : MonoBehaviour
 
     void HandleMovementAndStealth()
     {
+        if (knockbackTimer < knockbackDuration)
+        {
+            characterController.Move(knockbackVelocity * Time.deltaTime);
+            knockbackTimer += Time.deltaTime;
+            return; 
+        }
+        else
+        {
+            knockbackVelocity = Vector3.zero;
+        }
+
         float horizontalInput = Input.GetAxis("Horizontal"); 
         float verticalInput = Input.GetAxis("Vertical");   
 
-        Vector3 movement = new Vector3(horizontalInput, 0, verticalInput);
-        movement.Normalize(); 
-
-        if (movement.magnitude > 0.01f) 
+        Vector3 movementInput = new Vector3(horizontalInput, 0, verticalInput);
+        movementInput.Normalize(); 
+        
+        Vector3 finalMovement = movementInput * moveSpeed;
+        if (!characterController.isGrounded)
         {
-            transform.Translate(movement * moveSpeed * Time.deltaTime, Space.World);
+            finalMovement.y = Physics.gravity.y * Time.deltaTime; 
+        }
 
-            Vector3 currentPosition = transform.position;
-            currentPosition.y = groundLevelY;
-            transform.position = currentPosition;
+        if (movementInput.magnitude > 0.01f) 
+        {
+            characterController.Move(finalMovement * Time.deltaTime);
 
             if (IsHidden) 
             {
@@ -153,8 +182,6 @@ public class WitchController : MonoBehaviour
             }
             hideTimer = 0f;
 
-            // Movement interrupting channeling is handled in HandleChannelingProgress
-            // However, if not channeling, existing village interaction interruption can remain.
             if (isInteractingWithVillage && !isChanneling) 
             {
                 Debug.Log("Witch moved, stopping village interaction.");
@@ -446,5 +473,25 @@ public class WitchController : MonoBehaviour
                 UpdateVisuals(); 
             }
         }
+    }
+
+    public void ApplyKnockback(Vector3 force, float duration)
+    {
+        if (duration <= 0) return;
+        knockbackVelocity = force; 
+        knockbackDuration = duration;
+        knockbackTimer = 0f;
+
+        IsHidden = false; 
+        hideTimer = 0f;
+        
+        if (isChanneling)
+        {
+            StopChanneling(false); // Interrupt channeling
+            Debug.Log(gameObject.name + " channeling interrupted by knockback!");
+        }
+
+        Debug.Log(gameObject.name + " is knocked back with velocity " + force + " for " + duration + "s!");
+        UpdateVisuals(); 
     }
 }

@@ -24,6 +24,11 @@ public class MapLayoutManager : MonoBehaviour
     public List<Transform> possibleShrineSpawnLocations;
     public int numberOfShrinesToSpawn = 3;
 
+    // Heroic Deed Spawning
+    public List<GameObject> heroicDeedPrefabs;
+    public List<Transform> possibleDeedSpawnLocations;
+    public int numberOfDeedsToSpawn = 2;
+
     void Awake()
     {
         List<Transform> markersToPosition = new List<Transform>();
@@ -246,5 +251,68 @@ public class MapLayoutManager : MonoBehaviour
             Debug.Log("MapLayoutManager: Spawned Ley Line Shrine at " + spawnPoint.name + " (" + spawnPoint.position + ")");
         }
         Debug.Log("MapLayoutManager: Ley Line Shrine spawning complete. Spawned " + shrinesToSpawnCount + " shrines.");
+
+        // --- Heroic Deed Spawning Logic ---
+        if (heroicDeedPrefabs == null || heroicDeedPrefabs.Count == 0)
+        {
+            Debug.LogWarning("MapLayoutManager: heroicDeedPrefabs list is null or empty. Skipping deed spawning.");
+            return; 
+        }
+        if (heroicDeedPrefabs.Any(prefab => prefab == null))
+        {
+            Debug.LogWarning("MapLayoutManager: heroicDeedPrefabs list contains one or more null entries. These will be skipped.");
+            heroicDeedPrefabs = heroicDeedPrefabs.Where(prefab => prefab != null).ToList();
+            if(heroicDeedPrefabs.Count == 0) 
+            {
+                 Debug.LogWarning("MapLayoutManager: After removing nulls, heroicDeedPrefabs list is empty. Skipping deed spawning.");
+                 return;
+            }
+        }
+
+        if (possibleDeedSpawnLocations == null || possibleDeedSpawnLocations.Count == 0)
+        {
+            Debug.LogWarning("MapLayoutManager: possibleDeedSpawnLocations list is null or empty. Skipping deed spawning.");
+            return; 
+        }
+
+        List<Transform> availableDeedSpawns = new List<Transform>(possibleDeedSpawnLocations.Where(loc => loc != null));
+        if (availableDeedSpawns.Count == 0)
+        {
+            Debug.LogWarning("MapLayoutManager: All entries in possibleDeedSpawnLocations are null. Skipping deed spawning.");
+            return;
+        }
+
+        // Shuffle availableDeedSpawns (rng is from earlier in Awake)
+        int d_n = availableDeedSpawns.Count;
+        while (d_n > 1)
+        {
+            d_n--;
+            int k = rng.Next(d_n + 1);
+            Transform value = availableDeedSpawns[k];
+            availableDeedSpawns[k] = availableDeedSpawns[d_n];
+            availableDeedSpawns[d_n] = value;
+        }
+
+        int deedsToSpawnCount = Mathf.Min(numberOfDeedsToSpawn, availableDeedSpawns.Count);
+        if (numberOfDeedsToSpawn > availableDeedSpawns.Count)
+        {
+            Debug.LogWarning("MapLayoutManager: Requested to spawn " + numberOfDeedsToSpawn + 
+                             " deeds, but only " + availableDeedSpawns.Count + 
+                             " unique spawn locations are available. Spawning " + deedsToSpawnCount + " deeds.");
+        }
+        if (deedsToSpawnCount == 0 && numberOfDeedsToSpawn > 0)
+        {
+             Debug.LogWarning("MapLayoutManager: No valid spawn locations available for deeds, although " + numberOfDeedsToSpawn + " were requested.");
+        }
+
+
+        for (int i = 0; i < deedsToSpawnCount; i++)
+        {
+            GameObject prefabToSpawn = heroicDeedPrefabs[Random.Range(0, heroicDeedPrefabs.Count)];
+            Transform spawnPoint = availableDeedSpawns[i];
+            Instantiate(prefabToSpawn, spawnPoint.position, spawnPoint.rotation);
+            Debug.Log("MapLayoutManager: Spawned Heroic Deed '" + prefabToSpawn.name + "' at " + spawnPoint.name + " (" + spawnPoint.position + ")");
+        }
+        Debug.Log("MapLayoutManager: Heroic Deed spawning complete. Spawned " + deedsToSpawnCount + " deeds.");
     }
 }

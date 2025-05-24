@@ -32,6 +32,14 @@ public class DarkLordController : MonoBehaviour
     // public LayerMask heroLayerMask; // Not strictly needed if using FindGameObjectsWithTag
     private bool isPendingScryingOrb = false;
 
+    // Fear Surge Ability
+    public float fearSurgeCost = 40f;
+    public float fearSurgeRadius = 8.0f;
+    public float fearSurgeMinionStunDuration = 2.5f;
+    public float fearSurgeHeroRepelForce = 10.0f;
+    public float fearSurgeCooldown = 60.0f;
+    private float fearSurgeCooldownTimer = 0f;
+
     void Start()
     {
         if (scoutPrefab == null)
@@ -152,6 +160,29 @@ public class DarkLordController : MonoBehaviour
                 Debug.Log("Could not find a valid point on the ground for Scrying Orb. Click on terrain.");
             }
         }
+
+        // Fear Surge Cooldown
+        if (fearSurgeCooldownTimer > 0)
+        {
+            fearSurgeCooldownTimer -= Time.deltaTime;
+        }
+
+        // Input for Fear Surge
+        if (Input.GetKeyDown(KeyCode.Alpha5))
+        {
+            if (fearSurgeCooldownTimer <= 0 && currentEvilEnergy >= fearSurgeCost)
+            {
+                ExecuteFearSurge();
+            }
+            else if (currentEvilEnergy < fearSurgeCost)
+            {
+                Debug.Log("Not enough Evil Energy for Fear Surge. Current: " + currentEvilEnergy + ", Cost: " + fearSurgeCost);
+            }
+            else
+            {
+                Debug.Log("Fear Surge is on cooldown. Time remaining: " + fearSurgeCooldownTimer);
+            }
+        }
     }
 
     public void SpawnScout(Vector3 spawnPosition, Vector3 targetDispatchLocation)
@@ -251,6 +282,79 @@ public class DarkLordController : MonoBehaviour
                         kc.ApplyScryEffect(scryingOrbDuration);
                         Debug.Log("Scrying Orb reveals Knight Hero: " + heroGO.name + " at " + heroGO.transform.position);
                     }
+                }
+            }
+        }
+    }
+
+    void ExecuteFearSurge()
+    {
+        currentEvilEnergy -= fearSurgeCost;
+        fearSurgeCooldownTimer = fearSurgeCooldown;
+        Debug.Log("Dark Lord unleashes Fear Surge!");
+
+        Vector3 surgeOrigin = transform.position; // Assuming DarkLordController is on the castle or Dark Lord entity.
+
+        // Effect on Minions
+        string[] minionTags = { "Scout", "Tank", "Priest" };
+        foreach (string tag in minionTags)
+        {
+            GameObject[] minions = GameObject.FindGameObjectsWithTag(tag);
+            foreach (GameObject minionGO in minions)
+            {
+                if (minionGO.activeInHierarchy && Vector3.Distance(minionGO.transform.position, surgeOrigin) <= fearSurgeRadius)
+                {
+                    ScoutAI scoutAI = minionGO.GetComponent<ScoutAI>();
+                    if (scoutAI != null) scoutAI.ApplyStun(fearSurgeMinionStunDuration);
+
+                    TankAI tankAI = minionGO.GetComponent<TankAI>();
+                    if (tankAI != null) tankAI.ApplyStun(fearSurgeMinionStunDuration);
+
+                    PriestAI priestAI = minionGO.GetComponent<PriestAI>();
+                    if (priestAI != null) priestAI.ApplyStun(fearSurgeMinionStunDuration);
+                }
+            }
+        }
+
+        // Effect on Heroes
+        GameObject[] heroes = GameObject.FindGameObjectsWithTag("Hero");
+        foreach (GameObject heroGO in heroes)
+        {
+            if (heroGO.activeInHierarchy && Vector3.Distance(heroGO.transform.position, surgeOrigin) <= fearSurgeRadius)
+            {
+                Vector3 repelDir = (heroGO.transform.position - surgeOrigin).normalized;
+                repelDir.y = 0; // Ensure horizontal knockback
+
+                // Try to get any of the known hero controllers
+                HeroController hc = heroGO.GetComponent<HeroController>();
+                if (hc != null)
+                {
+                    hc.ApplyKnockback(repelDir * fearSurgeHeroRepelForce, 0.2f);
+                    Debug.Log("Fear Surge repels Goblin Hero: " + heroGO.name);
+                    continue; // Move to next hero
+                }
+
+                KnightController kc = heroGO.GetComponent<KnightController>();
+                if (kc != null)
+                {
+                    kc.ApplyKnockback(repelDir * fearSurgeHeroRepelForce, 0.2f);
+                    Debug.Log("Fear Surge repels Knight Hero: " + heroGO.name);
+                    continue; 
+                }
+
+                AlchemistController ac = heroGO.GetComponent<AlchemistController>();
+                if (ac != null)
+                {
+                    ac.ApplyKnockback(repelDir * fearSurgeHeroRepelForce, 0.2f);
+                    Debug.Log("Fear Surge repels Alchemist Hero: " + heroGO.name);
+                    continue; 
+                }
+
+                WitchController wc = heroGO.GetComponent<WitchController>();
+                if (wc != null)
+                {
+                    wc.ApplyKnockback(repelDir * fearSurgeHeroRepelForce, 0.2f);
+                    Debug.Log("Fear Surge repels Witch Hero: " + heroGO.name);
                 }
             }
         }
