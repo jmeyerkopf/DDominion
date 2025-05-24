@@ -66,6 +66,11 @@ public class HeroController : MonoBehaviour
     public float clueDropInterval = 1.0f; 
     public float clueLifetime = 10.0f;
 
+    // Reveal Effect
+    private bool isRevealed = false;
+    private float revealEffectTimer = 0f;
+    public Color revealedColor = Color.yellow; // Example color for reveal
+
     void Start()
     {
         // Reposition based on marker
@@ -108,14 +113,15 @@ public class HeroController : MonoBehaviour
             return; 
         }
 
-        HandleCloakInput(); // Handle cloak activation input first
+        HandleCloakInput(); 
         HandleMovementAndStealth();
         HandleAttack();
         HandleInteraction(); 
-        HandleVillageInteractionState(); // Manage ongoing village interaction
+        HandleVillageInteractionState(); 
         HandleDetectionLevelDecay(); 
-        UpdateCloakTimers(); // Manage cloak duration and cooldown
-        UpdateVisuals(); // Update visual representation based on states
+        UpdateCloakTimers(); 
+        HandleRevealState(); // Manage reveal effect duration
+        UpdateVisuals(); 
     }
     
     void HandleDetectionLevelDecay()
@@ -177,7 +183,7 @@ public class HeroController : MonoBehaviour
         }
         else 
         {
-            if (!IsHidden && !isCloaked) // Only enter normal stealth if not cloaked and not already hidden
+            if (!IsHidden && !isCloaked && !isRevealed) // Can only hide if not revealed
             {
                 hideTimer += Time.deltaTime;
                 if (hideTimer >= timeToHide)
@@ -402,7 +408,7 @@ public class HeroController : MonoBehaviour
 
     void HandleCloakInput()
     {
-        if (Input.GetKeyDown(KeyCode.LeftShift) && cloakCooldownTimer <= 0 && !isCloaked)
+        if (Input.GetKeyDown(KeyCode.LeftShift) && cloakCooldownTimer <= 0 && !isCloaked && !isRevealed) // Cannot cloak if revealed
         {
             isCloaked = true;
             cloakTimer = cloakDuration;
@@ -448,7 +454,11 @@ public class HeroController : MonoBehaviour
     {
         if (heroRenderer == null || heroRenderer.material == null) return;
 
-        if (isCloaked)
+        if (isRevealed)
+        {
+            heroRenderer.material.color = revealedColor;
+        }
+        else if (isCloaked)
         {
             heroRenderer.material.color = cloakColor;
         }
@@ -459,6 +469,37 @@ public class HeroController : MonoBehaviour
         else
         {
             heroRenderer.material.color = originalColor;
+        }
+    }
+
+    public void ApplyRevealEffect(float duration)
+    {
+        Debug.Log(gameObject.name + " has been REVEALED for " + duration + " seconds!");
+        isRevealed = true;
+        revealEffectTimer = duration;
+
+        // Break existing stealth/cloak
+        IsHidden = false;
+        isCloaked = false;
+        hideTimer = 0f;
+        cloakTimer = 0f; 
+        // Cloak cooldown is not reset by reveal, only its active state.
+
+        UpdateVisuals(); // Immediately update to revealed color
+    }
+
+    void HandleRevealState()
+    {
+        if (isRevealed)
+        {
+            revealEffectTimer -= Time.deltaTime;
+            if (revealEffectTimer <= 0)
+            {
+                isRevealed = false;
+                revealEffectTimer = 0f;
+                Debug.Log(gameObject.name + " reveal effect wore off.");
+                UpdateVisuals(); // Revert to normal/stealth/cloak color based on current state
+            }
         }
     }
 }

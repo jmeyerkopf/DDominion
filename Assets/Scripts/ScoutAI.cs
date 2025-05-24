@@ -48,6 +48,9 @@ public class ScoutAI : MonoBehaviour
     // private bool isInvestigatingClue = false; // Could be a separate state if needed
     private bool hasInitialMission = false;
 
+    // Stun state
+    private bool isStunned = false;
+    private float stunTimer = 0f;
 
     void Start()
     {
@@ -76,6 +79,19 @@ public class ScoutAI : MonoBehaviour
 
     void Update()
     {
+        if (isStunned)
+        {
+            stunTimer -= Time.deltaTime;
+            if (stunTimer <= 0f)
+            {
+                isStunned = false;
+                Debug.Log(gameObject.name + " is no longer stunned.");
+            }
+            // Potentially stop any current movement (e.g., if using NavMeshAgent, agent.isStopped = true)
+            // For Translate-based movement, simply returning here prevents further action processing.
+            return; 
+        }
+
         if (heroController == null || heroTransformInternal == null) 
         {
             if (isWandering) MoveToWanderPoint();
@@ -409,5 +425,17 @@ public class ScoutAI : MonoBehaviour
 
         // Adjust waypoint to be on the same ground level as the scout
         currentWaypoint.y = groundLevelY;
+    }
+
+    public void ApplyStun(float duration)
+    {
+        if (duration <= 0) return;
+        isStunned = true;
+        stunTimer = duration;
+        Debug.Log(gameObject.name + " is STUNNED for " + duration + " seconds!");
+        // Reset other states that might be interrupted by stun
+        isActivelyChasing = false;
+        investigatingNoise = false; 
+        // isWandering might become true after stun if no other stimuli, or false if it should re-evaluate
     }
 }

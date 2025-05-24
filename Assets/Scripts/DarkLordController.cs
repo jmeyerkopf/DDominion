@@ -10,6 +10,10 @@ public class DarkLordController : MonoBehaviour
     public GameObject tankPrefab;
     public float tankSpawnCost = 25f;
 
+    // Priest Spawning Fields
+    public GameObject priestPrefab;
+    public float priestSpawnCost = 20f;
+
     // Evil Energy Fields
     public float currentEvilEnergy = 50f; 
     public float maxEvilEnergy = 100f;
@@ -25,9 +29,13 @@ public class DarkLordController : MonoBehaviour
         {
             Debug.LogError("DarkLordController: ScoutPrefab is not assigned!");
         }
-        if (tankPrefab == null) // Added check for tank prefab
+        if (tankPrefab == null) 
         {
             Debug.LogError("DarkLordController: TankPrefab is not assigned!");
+        }
+        if (priestPrefab == null)
+        {
+            Debug.LogError("DarkLordController: PriestPrefab is not assigned!");
         }
     }
 
@@ -77,6 +85,13 @@ public class DarkLordController : MonoBehaviour
             Debug.Log("Alpha2 key pressed - attempting to spawn Tank.");
             TrySpawnTank();
         }
+
+        // Input for Spawning Priest
+        if (Input.GetKeyDown(KeyCode.Alpha3))
+        {
+            Debug.Log("Alpha3 key pressed - attempting to spawn Priest.");
+            TrySpawnPriest();
+        }
     }
 
     public void SpawnScout(Vector3 spawnPosition, Vector3 targetDispatchLocation)
@@ -125,6 +140,26 @@ public class DarkLordController : MonoBehaviour
         else
         {
             Debug.Log("Not enough Evil Energy to spawn Tank. Current: " + currentEvilEnergy + ", Cost: " + tankSpawnCost);
+        }
+    }
+
+    public void TrySpawnPriest()
+    {
+        if (priestPrefab == null)
+        {
+            Debug.LogError("Priest Prefab not assigned in DarkLordController!");
+            return;
+        }
+
+        if (currentEvilEnergy >= priestSpawnCost)
+        {
+            currentEvilEnergy -= priestSpawnCost;
+            Instantiate(priestPrefab, initialSpawnPosition, Quaternion.identity); // Using initialSpawnPosition for now
+            Debug.Log("Priest spawned. Energy deducted: " + priestSpawnCost + ". Remaining energy: " + currentEvilEnergy);
+        }
+        else
+        {
+            Debug.Log("Not enough Evil Energy to spawn Priest. Current: " + currentEvilEnergy + ", Cost: " + priestSpawnCost);
         }
     }
 }

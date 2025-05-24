@@ -9,21 +9,32 @@ public class Health : MonoBehaviour
     public GameObject goldNuggetPrefab; // Assign GoldNugget prefab in Inspector (especially for Scout)
     public int goldDropAmount = 1;      // Number of gold nuggets to drop
 
+    private float currentDamageReduction = 0f;
+
     void Start()
     {
         currentHealth = maxHealth;
     }
 
-    public void TakeDamage(float amount)
+    public void SetDamageReduction(float reductionPercent)
     {
-        currentHealth -= amount;
-        Debug.Log(gameObject.name + " took " + amount + " damage. Current health: " + currentHealth);
+        currentDamageReduction = Mathf.Clamp01(reductionPercent);
+        Debug.Log(gameObject.name + " damage reduction set to " + (currentDamageReduction * 100) + "%");
+    }
+
+    public bool TakeDamage(float amount) // Changed to return bool
+    {
+        float actualDamage = amount * (1.0f - currentDamageReduction);
+        currentHealth -= actualDamage;
+        Debug.Log(gameObject.name + " took " + actualDamage + " (raw: " + amount + ") damage. Reduction: " + (currentDamageReduction * 100) + "%. Current health: " + currentHealth);
 
         if (currentHealth <= 0)
         {
             currentHealth = 0;
             Die();
+            return true; // Damage was lethal
         }
+        return false; // Damage was not lethal
     }
 
     void Die()

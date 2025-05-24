@@ -28,6 +28,9 @@ public class TankAI : MonoBehaviour
     private bool investigatingNoise = false;
     public float noiseInvestigationRadiusMultiplier = 1.0f; 
 
+    // Stun state
+    private bool isStunned = false;
+    private float stunTimer = 0f;
 
     void Start()
     {
@@ -60,6 +63,17 @@ public class TankAI : MonoBehaviour
 
     void Update()
     {
+        if (isStunned)
+        {
+            stunTimer -= Time.deltaTime;
+            if (stunTimer <= 0f)
+            {
+                isStunned = false;
+                Debug.Log(gameObject.name + " is no longer stunned.");
+            }
+            return; 
+        }
+
         if (heroController == null || heroTransformInternal == null || !heroTransformInternal.gameObject.activeInHierarchy)
         {
             if (!investigatingNoise) MoveToWanderPoint(); 
@@ -267,5 +281,16 @@ public class TankAI : MonoBehaviour
         {
             Debug.Log(gameObject.name + " (Tank) received alert but is already busy (engaging: " + isActivelyEngaging + ", investigating: " + investigatingNoise + ")");
         }
+    }
+
+    public void ApplyStun(float duration)
+    {
+        if (duration <= 0) return;
+        isStunned = true;
+        stunTimer = duration;
+        Debug.Log(gameObject.name + " is STUNNED for " + duration + " seconds!");
+        // Reset other states that might be interrupted by stun
+        isActivelyEngaging = false;
+        investigatingNoise = false;
     }
 }
